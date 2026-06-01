@@ -1,12 +1,10 @@
-data/
-results/
-*.pyc
-__pycache__/
-.venv/
-*.pkl
-*.npz
 paper/*.aux
 paper/*.log
 paper/*.out
 paper/*.toc
+__pycache__/
+*.pyc
+data/*.npz
+data/*.pkl
+.venv/
 

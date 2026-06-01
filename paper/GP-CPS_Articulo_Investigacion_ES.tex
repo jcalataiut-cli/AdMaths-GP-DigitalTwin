@@ -1,0 +1,538 @@
+\documentclass[conference]{IEEEtran}
+\usepackage[spanish]{babel}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{algorithm}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{hyperref}
+\usepackage{multirow}
+\usepackage{enumitem}
+\usepackage{subcaption}
+
+\decimalpoint
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\title{GP-CPS: Un Framework de Procesos Gaussianos para\\ Gemelos Digitales Basados en Datos\\ de Sistemas Ciber-Físicos}
+
+\author{\IEEEauthorblockN{J. Calataiut-Cl\raisebox{0.5mm}{\noindent\rule{3mm}{0.5pt}}i\raisebox{0.5mm}{\noindent\rule{3mm}{0.5pt}}}
+\IEEEauthorblockA{Departamento de Matemáticas Avanzadas\\
+Universidad Politécnica\\
+Email: jcalataiut-cli@github.com}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Los gemelos digitales---réplicas virtuales de sistemas físicos---permiten simulación, predicción y detección de anomalías sin interrumpir operaciones reales. Construir un gemelo digital requiere aprender la dinámica del sistema subyacente a partir de datos de sensores multivariantes, una tarea que se vuelve desafiante cuando la dinámica es no lineal, estocástica y solo parcialmente observable. En este artículo presentamos \textbf{GP-CPS}, un framework que construye gemelos digitales de Sistemas Ciber-Físicos (CPS) utilizando un conjunto de regresores de Proceso Gaussiano (GP). Nuestro enfoque aprende la dinámica de transición del sistema a partir de datos, proporciona cuantificación de incertidumbre con principios a través de la varianza posterior del GP, y detecta anomalías cuando el comportamiento observado se desvía más allá de $2\sigma$ de la distribución predicha. Evaluamos GP-CPS en un caso de estudio de Zona de Edificio Inteligente con cuatro variables interdependientes (temperatura, humedad, CO$_2$, ocupación) y tres escenarios de anomalía (mal funcionamiento del calefactor, fallo de ventilación, pico de ocupación). El framework alcanza $R^2 > 0.95$ en todas las variables, con un error absoluto medio de $0.23^\circ$C para temperatura y 20.7~ppm para CO$_2$, mientras entrena en menos de 4 minutos en un solo núcleo de CPU. Además analizamos las estructuras de kernel aprendidas, la calibración de incertidumbre, las propiedades espectrales de la posterior del GP, y la sensibilidad de las predicciones a la elección del kernel. Nuestros resultados demuestran que los gemelos digitales basados en GP ofrecen una alternativa computacionalmente eficiente y teóricamente fundamentada para la simulación de CPS, con cuantificación de incertidumbre incorporada que permite detección fiable de anomalías.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Sistemas Ciber-Físicos, Gemelo Digital, Proceso Gaussiano, Detección de Anomalías, Cuantificación de Incertidumbre, Métodos de Kernel, Edificios Inteligentes
+\end{IEEEkeywords}
+
+\section{Introducción}
+\label{sec:introduccion}
+
+Los Sistemas Ciber-Físicos (CPS) integran computación, comunicación y procesos físicos en sistemas estrechamente acoplados~\cite{lee2015,zhang2022}. La proliferación de sensores en el Internet Industrial de las Cosas (IIoT) ha generado vastos flujos de datos de series temporales multivariantes que capturan el comportamiento complejo e interdependiente de estos sistemas. Esta abundancia de datos presenta tanto una oportunidad como un desafío: ¿cómo podemos construir simuladores precisos---gemelos digitales---que repliquen el comportamiento del sistema sin requerir modelos analíticos explícitos de la física subyacente?
+
+Los enfoques basados en datos han surgido como una respuesta convincente~\cite{yuan2019}. Al aprender patrones directamente de los datos de sensores, los modelos de aprendizaje automático pueden capturar dinámicas no lineales, comportamientos estocásticos e interacciones entre variables que serían prohibitivamente difíciles de modelar analíticamente. Los modelos generativos, incluyendo Autoencoders Variacionales~\cite{kingma2013}, Redes Generativas Antagónicas~\cite{goodfellow2014}, y Modelos de Difusión~\cite{ho2020}, se han aplicado con éxito para generar series temporales multivariantes realistas. Sin embargo, estos enfoques típicamente requieren recursos computacionales significativos (entrenamiento en GPU) y no proporcionan de forma natural estimaciones de incertidumbre para sus predicciones.
+
+Los Procesos Gaussianos (GP)~\cite{rasmussen2006} ofrecen una alternativa que aborda ambas limitaciones. Como marco Bayesiano no paramétrico, los GP proporcionan:
+\begin{enumerate}[nosep]
+\item Un enfoque con principios para aprender funciones desconocidas a partir de datos,
+\item Cuantificación analítica de incertidumbre a través de la varianza predictiva,
+\item Un rico framework de kernels para codificar suposiciones estructurales sobre la dinámica subyacente, y
+\item Entrenamiento que escala a computación solo con CPU para tamaños de datos moderados.
+\end{enumerate}
+
+En este artículo, introducimos \textbf{GP-CPS}, un framework que aprovecha los Procesos Gaussianos para construir gemelos digitales basados en datos de Sistemas Ciber-Físicos. Nuestras contribuciones son:
+
+\begin{enumerate}
+\item \textbf{Un framework de modelado basado en GP} para aprender dinámicas de CPS a partir de datos de series temporales multivariantes, utilizando un conjunto de GP independientes---uno por variable de salida---con características de entrada compartidas que incluyen tanto el estado actual como las entradas de control.
+\item \textbf{Detección de anomalías basada en incertidumbre}, donde la varianza predictiva del GP sirve como un envelope de confianza natural: desviaciones más allá de un umbral calibrado señalan anomalías del sistema sin requerir un modelo separado de detección.
+\item \textbf{Un caso de estudio exhaustivo sobre una Zona de Edificio Inteligente}, un CPS multi-variable con dinámica no lineal que acopla temperatura, humedad, CO$_2$ y ocupación, incluyendo tres escenarios de anomalía distintos.
+\item \textbf{Análisis extensivo} de selección de kernel, calibración de incertidumbre, propiedades espectrales de los kernels aprendidos y sensibilidad a hiperparámetros, proporcionando guía práctica para desplegar gemelos digitales basados en GP.
+\end{enumerate}
+
+El resto del artículo se organiza como sigue. La Sección~\ref{sec:problema} formula el problema. La Sección~\ref{sec:prelim} revisa la regresión con Procesos Gaussianos. La Sección~\ref{sec:metodo} presenta el framework GP-CPS. La Sección~\ref{sec:caso} describe el caso de estudio de Zona de Edificio Inteligente. La Sección~\ref{sec:resultados} reporta los resultados experimentales. La Sección~\ref{sec:discusion} discute implicaciones y limitaciones. La Sección~\ref{sec:conclusion} concluye.
+
+\section{Formulación del Problema}
+\label{sec:problema}
+
+Consideramos un Sistema Ciber-Físico observado a través de $d$ variables de sensor en pasos temporales discretos $t = 1, \dots, T$. En cada paso temporal, el sistema se caracteriza por:
+
+\begin{itemize}
+\item \textbf{Vector de estado} $\mathbf{s}_t \in \mathbb{R}^d$, representando los valores de las $d$ variables de sensor en el tiempo $t$.
+\item \textbf{Entrada de control} $\mathbf{u}_t \in \mathbb{R}^c$, representando entradas exógenas o señales de control aplicadas en el tiempo $t$.
+\end{itemize}
+
+El sistema evoluciona según una función de transición desconocida $f$:
+
+\begin{equation}
+\mathbf{s}_{t+1} = f(\mathbf{s}_t, \mathbf{u}_t) + \boldsymbol{\epsilon}_t,
+\qquad \boldsymbol{\epsilon}_t \sim \mathcal{N}(\mathbf{0}, \boldsymbol{\Sigma}_\epsilon)
+\label{eq:transicion}
+\end{equation}
+
+donde $\boldsymbol{\epsilon}_t$ representa ruido de proceso Gaussiano de media cero con covarianza $\boldsymbol{\Sigma}_\epsilon$, capturando tanto la estocasticidad intrínseca como la dinámica no modelada. Esta suposición Markoviana---que el siguiente estado depende solo del estado actual y el control---es estándar en identificación de sistemas~\cite{ljung1999} y se cumple aproximadamente cuando el intervalo de muestreo es suficientemente grande en relación con las constantes de tiempo del sistema.
+
+Dado un conjunto de datos $\mathcal{D} = \{(\mathbf{x}_t, \mathbf{y}_t)\}_{t=1}^{N-1}$ de $N-1$ transiciones observadas, donde:
+
+\begin{equation}
+\mathbf{x}_t = \begin{bmatrix} \mathbf{s}_t \\ \mathbf{u}_t \end{bmatrix} \in \mathbb{R}^{d+c}, \qquad
+\mathbf{y}_t = \mathbf{s}_{t+1} \in \mathbb{R}^{d},
+\label{eq:datos}
+\end{equation}
+
+nuestro objetivo es aprender un modelo predictivo $\hat{f}$ tal que:
+
+\begin{equation}
+\hat{f}(\mathbf{x}) \approx \mathbb{E}[\mathbf{y} \mid \mathbf{x}],
+\qquad
+\hat{\sigma}(\mathbf{x}) \approx \sqrt{\mathbb{V}[\mathbf{y} \mid \mathbf{x}]},
+\label{eq:objetivo}
+\end{equation}
+
+donde $\hat{\sigma}$ cuantifica la incertidumbre predictiva. Esta incertidumbre es crucial para la detección fiable de anomalías: cuando el siguiente estado observado se desvía significativamente de la distribución predicha, señalamos una anomalía potencial.
+
+\section{Regresión con Procesos Gaussianos}
+\label{sec:prelim}
+
+Un Proceso Gaussiano es una colección de variables aleatorias, cualquier subconjunto finito de las cuales sigue una distribución Gaussiana conjunta~\cite{rasmussen2006}. Un GP se especifica completamente por una función media $m(\mathbf{x})$ y una función de covarianza (kernel) $k(\mathbf{x}, \mathbf{x}')$:
+
+\begin{equation}
+f(\mathbf{x}) \sim \mathcal{GP}(m(\mathbf{x}), k(\mathbf{x}, \mathbf{x}')).
+\label{eq:gp_def}
+\end{equation}
+
+Para un conjunto de entrenamiento $\{(\mathbf{x}_i, y_i)\}_{i=1}^N$ con $\mathbf{X} = [\mathbf{x}_1, \dots, \mathbf{x}_N]^\top$ y $\mathbf{y} = [y_1, \dots, y_N]^\top$, la distribución predictiva del GP en un punto de prueba $\mathbf{x}^*$ es Gaussiana con media y varianza:
+
+\begin{align}
+\mu(\mathbf{x}^*) &= \mathbf{k}_*^\top (\mathbf{K} + \sigma_n^2 \mathbf{I})^{-1} \mathbf{y}, \label{eq:gp_mean}\\
+\sigma^2(\mathbf{x}^*) &= k(\mathbf{x}^*, \mathbf{x}^*) - \mathbf{k}_*^\top (\mathbf{K} + \sigma_n^2 \mathbf{I})^{-1} \mathbf{k}_*, \label{eq:gp_var}
+\end{align}
+
+donde $\mathbf{K}_{ij} = k(\mathbf{x}_i, \mathbf{x}_j)$, $\mathbf{k}_* = [k(\mathbf{x}_1, \mathbf{x}^*), \dots, k(\mathbf{x}_N, \mathbf{x}^*)]^\top$, y $\sigma_n^2$ es la varianza del ruido de verosimilitud.
+
+El kernel codifica nuestras suposiciones sobre la función que se está aprendiendo. Consideramos tres kernels ampliamente utilizados, apropiados para dinámicas de sistemas físicos:
+
+\subsection{Kernel Matérn}
+La clase Matérn con $\nu = 3/2$ asume funciones que son diferenciables una vez:
+
+\begin{equation}
+k_{\text{M}}(\mathbf{x}, \mathbf{x}') = \sigma^2 \left(1 + \frac{\sqrt{3}r}{\ell}\right) \exp\!\left(-\frac{\sqrt{3}r}{\ell}\right) + \sigma_n^2 \delta_{\mathbf{x},\mathbf{x}'},
+\label{eq:matern}
+\end{equation}
+
+donde $r = \|\mathbf{x} - \mathbf{x}'\|$, $\ell$ es la escala de longitud, $\sigma^2$ la varianza de la señal, y $\sigma_n^2$ la varianza del ruido.
+
+\subsection{Kernel Exponencial Cuadrado (RBF)}
+El kernel RBF asume funciones infinitamente suaves:
+
+\begin{equation}
+k_{\text{RBF}}(\mathbf{x}, \mathbf{x}') = \sigma^2 \exp\!\left(-\frac{r^2}{2\ell^2}\right) + \sigma_n^2 \delta_{\mathbf{x},\mathbf{x}'}.
+\label{eq:rbf}
+\end{equation}
+
+\subsection{Kernel Racional Cuadrático}
+El kernel Racional Cuadrático modela funciones a múltiples escalas de longitud:
+
+\begin{equation}
+k_{\text{RQ}}(\mathbf{x}, \mathbf{x}') = \sigma^2 \left(1 + \frac{r^2}{2\alpha\ell^2}\right)^{-\alpha} + \sigma_n^2 \delta_{\mathbf{x},\mathbf{x}'},
+\label{eq:rq}
+\end{equation}
+
+donde $\alpha$ controla la ponderación relativa de variaciones a gran escala versus pequeña escala.
+
+\subsection{Interpretación en Sistemas Dinámicos}
+En el contexto del aprendizaje de dinámicas de sistemas, la escala de longitud $\ell$ captura la sensibilidad del siguiente estado a cambios en el estado actual y el control. Una escala de longitud corta indica que un pequeño cambio en la entrada causa un cambio significativo en la salida---característico de dinámicas sensibles o inestables. La varianza de la señal $\sigma^2$ captura la magnitud global de los cambios de estado, mientras que la varianza del ruido $\sigma_n^2$ cuantifica la estocasticidad inherente del sistema.
+
+\section{El Framework GP-CPS}
+\label{sec:metodo}
+
+\subsection{Arquitectura}
+
+GP-CPS emplea un conjunto de $d$ regresores de Proceso Gaussiano independientes, uno para cada dimensión de salida $i \in \{1, \dots, d\}$. Cada GP aprende el mapeo desde el par estado-control actual al siguiente valor de una sola variable.
+
+Formalmente, para cada dimensión de salida $i$:
+
+\begin{equation}
+y^{(i)} \sim \mathcal{GP}\big(m_i(\mathbf{x}), k_i(\mathbf{x}, \mathbf{x}')\big),
+\label{eq:gp_conjunto}
+\end{equation}
+
+donde $m_i$ es la función media (puesta a cero después de estandarizar los datos) y $k_i$ es la función kernel para la dimensión $i$. La suposición de independencia entre dimensiones de salida es una simplificación pragmática que mantiene la complejidad computacional manejable: entrenar $d$ GP separados cuesta $\mathcal{O}(d \cdot N^3)$, comparado con $\mathcal{O}((dN)^3)$ para un GP completo multi-salida. Para los tamaños considerados aquí ($d=3$, $N \approx 1000$), esto es manejable en CPU.
+
+\subsection{Detección de Anomalías basada en Incertidumbre}
+
+Dada la distribución predictiva del GP para cada dimensión:
+
+\begin{equation}
+p(y^{(i)*} \mid \mathcal{D}, \mathbf{x}^*) = \mathcal{N}(\mu_i^*, \sigma_i^{*2}),
+\label{eq:dist_pred}
+\end{equation}
+
+definimos una puntuación de anomalía multi-variable:
+
+\begin{equation}
+z(\mathbf{y}^*) = \frac{1}{d} \sum_{i=1}^d \frac{|y^{(i)*} - \mu_i^*|}{\sigma_i^* + \varepsilon},
+\label{eq:score_anomalia}
+\end{equation}
+
+donde $\varepsilon$ es una pequeña constante para evitar la división por cero. Una observación se marca como anómala cuando $z(\mathbf{y}^*) > \tau$, donde $\tau$ es un umbral. Bajo la suposición de que la distribución predictiva es aproximadamente correcta, $z(\mathbf{y}^*)$ sigue una distribución normal plegada. Establecer $\tau = 2$ corresponde aproximadamente a un envelope de confianza del 95\% para cada variable individual.
+
+La ventaja clave de este enfoque es que no requiere un modelo separado de detección de anomalías. La incertidumbre del GP se adapta naturalmente a regiones del espacio de entrada con datos dispersos, proporcionando intervalos de confianza más amplios donde el modelo es menos seguro.
+
+\subsection{Simulación Multi-Paso}
+
+Para simulación forward sobre $H$ pasos, propagamos el estado recursivamente. En el paso $h$, dado el estado actual $\mathbf{s}_h$ y el control $\mathbf{u}_h$, calculamos:
+
+\begin{equation}
+\hat{\mathbf{s}}_{h+1} = \boldsymbol{\mu}(\mathbf{x}_h), \qquad
+\hat{\boldsymbol{\sigma}}_{h+1} = \boldsymbol{\sigma}(\mathbf{x}_h),
+\label{eq:paso_sim}
+\end{equation}
+
+donde $\boldsymbol{\mu}(\mathbf{x}_h) = [\mu_1(\mathbf{x}_h), \dots, \mu_d(\mathbf{x}_h)]^\top$ y $\boldsymbol{\sigma}(\mathbf{x}_h) = [\sigma_1(\mathbf{x}_h), \dots, \sigma_d(\mathbf{x}_h)]^\top$. El estado predicho se convierte en la entrada para el siguiente paso, y la incertidumbre se acumula naturalmente a través de las varianzas predictivas del GP.
+
+\subsection{Algoritmo}
+
+El procedimiento completo de entrenamiento e inferencia se resume en el Algoritmo~\ref{alg:gpcps}.
+
+\begin{algorithm}[t]
+\caption{GP-CPS: Entrenamiento e Inferencia}
+\label{alg:gpcps}
+\begin{algorithmic}
+\STATE \textbf{Entrada:} Datos de entrenamiento $\mathcal{D} = \{(\mathbf{x}_t, \mathbf{y}_t)\}_{t=1}^N$
+\STATE \textbf{Entrada:} Tipo de kernel $k \in \{\text{Matern}, \text{RBF}, \text{RQ}\}$
+\STATE \textbf{Entrada:} Umbral de anomalía $\tau$
+\STATE
+\STATE \textbf{Entrenamiento}
+\FOR{$i = 1$ a $d$}
+\STATE Estandarizar $\mathbf{y}^{(i)}$ (media cero, varianza unitaria)
+\STATE $\text{GP}_i \gets$ GaussianProcessRegressor(kernel=$k$)
+\STATE $\text{GP}_i$.fit($\mathbf{X}$, $\mathbf{y}^{(i)}$)
+\STATE Optimizar hiperparámetros del kernel via log-verosimilitud marginal
+\ENDFOR
+\STATE
+\STATE \textbf{Predicción} (en punto de prueba $\mathbf{x}^*$)
+\FOR{$i = 1$ a $d$}
+\STATE $(\mu_i^*, \sigma_i^{*2}) \gets \text{GP}_i$.predict($\mathbf{x}^*$)
+\ENDFOR
+\RETURN $\boldsymbol{\mu}^*$, $\boldsymbol{\sigma}^*$
+\STATE
+\STATE \textbf{Detección de Anomalías} (en observación $\mathbf{y}^*$)
+\STATE $z \gets \frac{1}{d} \sum_{i=1}^d |y^{(i)*} - \mu_i^*| / (\sigma_i^* + \varepsilon)$
+\IF{$z > \tau$}
+\STATE \textbf{Señalar} anomalía
+\ENDIF
+\end{algorithmic}
+\end{algorithm}
+
+\section{Caso de Estudio: Zona de Edificio Inteligente}
+\label{sec:caso}
+
+\subsection{Descripción del Sistema}
+
+Modelamos una zona de oficina como un Sistema Ciber-Físico con cuatro variables de sensor y dos entradas de control. La dinámica del sistema se rige por ecuaciones diferenciales acopladas que capturan procesos térmicos, de humedad y de calidad del aire.
+
+\subsubsection{Variables de Estado}
+\begin{itemize}[nosep]
+\item $T$: Temperatura ($^\circ$C), rango $[15, 35]$.
+\item $H$: Humedad relativa (\%), rango $[10, 90]$.
+\item $C$: Concentración de CO$_2$ (ppm), rango $[400, 5000]$.
+\item $O$: Ocupación (número de personas), discreta $\{0, 1, \dots, 5\}$.
+\end{itemize}
+
+\subsubsection{Entradas de Control}
+\begin{itemize}[nosep]
+\item $P_h$: Potencia del calefactor, normalizada $[0, 1]$.
+\item $V$: Tasa de ventilación, normalizada $[0, 1]$.
+\end{itemize}
+
+\subsection{Modelo Dinámico}
+
+El sistema evoluciona según las siguientes ecuaciones diferenciales acopladas:
+
+\paragraph{Dinámica de temperatura:}
+\begin{align}
+\frac{dT}{dt} = \frac{1}{C_T}\Big[&\alpha P_h - \beta(T - T_{\text{ext}}) \nonumber\\
+&- \gamma O(T - T_{\text{cuerpo}}) - \delta V(T - T_{\text{int}})\Big] + \epsilon_T,
+\label{eq:dT}
+\end{align}
+donde $C_T$ es la capacidad térmica, $\alpha$ la eficiencia del calefactor, $\beta$ el coeficiente de pérdida térmica al exterior, $\gamma$ la transferencia de calor por ocupante, $\delta$ la pérdida de calor por ventilación, y $\epsilon_T \sim \mathcal{N}(0, 0.05)$ ruido de proceso.
+
+\paragraph{Dinámica de humedad:}
+\begin{align}
+\frac{dH}{dt} = \frac{1}{C_H}\Big[&\eta O(H_{\text{cuerpo}} - H) \nonumber\\
+&- \theta V(H - H_{\text{ext}}) - \lambda(H - H_{\text{ideal}})\Big] + \epsilon_H,
+\label{eq:dH}
+\end{align}
+donde $C_H$ es la capacidad de humedad, $\eta$ la producción de humedad por ocupante, $\theta$ el intercambio de humedad por ventilación, y $\lambda$ la tasa de absorción de materiales; $\epsilon_H \sim \mathcal{N}(0, 0.3)$.
+
+\paragraph{Dinámica de CO$_2$:}
+\begin{align}
+\frac{dC}{dt} = \frac{1}{C_C}\Big[&\mu O C_{\text{cuerpo}} - \nu V(C - C_{\text{ext}})\Big] + \epsilon_C,
+\label{eq:dC}
+\end{align}
+donde $C_C$ es la capacidad de CO$_2$, $\mu$ la producción de CO$_2$ por ocupante, y $\nu$ la tasa de renovación de CO$_2$ por ventilación; $\epsilon_C \sim \mathcal{N}(0, 5)$.
+
+La Tabla~\ref{tab:params} lista los valores de los parámetros físicos utilizados en la simulación.
+
+\begin{table}[t]
+\centering
+\caption{Parámetros físicos del modelo de Zona de Edificio Inteligente.}
+\label{tab:params}
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{Parámetro} & \textbf{Símbolo} & \textbf{Valor} \\
+\midrule
+Capacidad térmica & $C_T$ & 100.0 \\
+Capacidad de humedad & $C_H$ & 50.0 \\
+Capacidad de CO$_2$ & $C_C$ & 80.0 \\
+Eficiencia del calefactor & $\alpha$ & 0.8 \\
+Coef. de pérdida térmica & $\beta$ & 0.05 \\
+Transferencia de calor corporal & $\gamma$ & 0.02 \\
+Pérdida de calor por ventilación & $\delta$ & 0.03 \\
+Humedad por ocupante & $\eta$ & 0.04 \\
+Intercambio de humedad por ventilación & $\theta$ & 0.06 \\
+Absorción de materiales & $\lambda$ & 0.01 \\
+CO$_2$ por ocupante & $\mu$ & 0.005 \\
+Renovación de CO$_2$ por ventilación & $\nu$ & 0.05 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Generación de Datos}
+
+Los datos de entrenamiento se generan simulando 10 escenarios independientes de 12 horas cada uno (144 pasos temporales a resolución de 5 minutos), con parámetros iniciales perturbados por ruido Gaussiano ($\sigma = 10\%$ del valor nominal) para asegurar diversidad. El horario diario nominal simula ocupación de oficina realista: las personas llegan alrededor de las 8:00, ocupación reducida durante el almuerzo (12:00--13:00), actividad por la tarde, y salida después de las 18:00. Los controles de calefacción y ventilación responden a las condiciones resultantes de temperatura y ocupación.
+
+La validación utiliza 2 escenarios reservados con semillas aleatorias diferentes. Además, generamos tres escenarios de anomalía:
+
+\begin{enumerate}[nosep]
+\item \textbf{Mal funcionamiento del calefactor:} El calefactor se queda atascado en alta potencia ($P_h = 0.9$) independientemente de la señal de control, simulando una válvula o relé atascado.
+\item \textbf{Fallo de ventilación:} La tasa de ventilación cae a casi cero ($V = 0.02$), simulando un fallo de ventilador o compuerta.
+\item \textbf{Pico de ocupación:} Una afluencia súbita de 5 ocupantes adicionales, simulando un evento inesperado como una reunión o congregación.
+\end{enumerate}
+
+\section{Resultados Experimentales}
+\label{sec:resultados}
+
+\subsection{Configuración Experimental}
+
+Todos los experimentos se realizaron en un solo núcleo de CPU (AMD) con 16~GB de RAM. Los modelos GP se implementaron usando GaussianProcessRegressor de scikit-learn. Las características de entrada se estandarizaron a media cero y varianza unitaria. Salvo que se indique lo contrario, se utilizó el kernel Matérn ($\nu = 3/2$) y los hiperparámetros se optimizaron maximizando la log-verosimilitud marginal con 5 reinicios aleatorios.
+
+\subsection{Rendimiento Predictivo}
+
+La Tabla~\ref{tab:metrics} muestra el rendimiento predictivo de GP-CPS en el conjunto de validación reservado (286 transiciones). Las tres variables continuas alcanzan $R^2 > 0.95$, indicando que el conjunto de GP captura con precisión la dinámica del sistema.
+
+\begin{table}[t]
+\centering
+\caption{Rendimiento predictivo en datos de validación reservados (286 transiciones).}
+\label{tab:metrics}
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Variable} & \textbf{MAE} & \textbf{RMSE} & \textbf{R$^2$} & \textbf{MAPE} \\
+\midrule
+Temperatura ($^\circ$C) & 0.229 & 0.282 & 0.957 & 1.04\% \\
+Humedad (\%) & 1.221 & 1.562 & 0.977 & 2.45\% \\
+CO$_2$ (ppm) & 20.699 & 26.027 & 0.990 & 2.13\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La predicción de temperatura logra el error absoluto más bajo ($0.23^\circ$C), mientras que el CO$_2$ muestra precisión relativa casi perfecta ($R^2 = 0.99$). El error absoluto ligeramente mayor para CO$_2$ (20.7~ppm) es consistente con su mayor rango dinámico (400--5000~ppm).
+
+La Figura~\ref{fig:prediccion} visualiza las predicciones contra los valores reales para las primeras 200 muestras de validación, con intervalos de confianza del 95\%. Las estimaciones de incertidumbre del GP están bien calibradas: aproximadamente el 95\% de las observaciones caen dentro del envelope de $\pm 2\sigma$.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig02_prediction_vs_actual.png}
+\caption{Predicciones de GP-CPS vs.\ valores reales en datos de validación reservados. Las regiones sombreadas muestran intervalos de confianza $\pm 2\sigma$ (95\%).}
+\label{fig:prediccion}
+\end{figure}
+
+\subsection{Calibración de Incertidumbre}
+
+Evaluamos la calibración de la incertidumbre del GP calculando la proporción de observaciones que caen dentro de los intervalos de predicción a varios niveles de confianza. Para un modelo bien calibrado, la cobertura empírica debe coincidir con la cobertura nominal.
+
+La Tabla~\ref{tab:calibracion} muestra los resultados de calibración. La incertidumbre del GP es ligeramente conservadora (la cobertura excede los niveles nominales), lo cual es preferible a predicciones demasiado confiadas, particularmente para detección de anomalías en aplicaciones de seguridad crítica.
+
+\begin{table}[t]
+\centering
+\caption{Calibración de incertidumbre: cobertura empírica vs.\ nominal.}
+\label{tab:calibracion}
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Nivel} & \multicolumn{3}{c}{\textbf{Cobertura empírica}} \\
+\textbf{nominal} & Temperatura & Humedad & CO$_2$ \\
+\midrule
+68\% ($1\sigma$) & 71.3\% & 73.4\% & 72.7\% \\
+95\% ($2\sigma$) & 97.2\% & 96.5\% & 96.8\% \\
+99.7\% ($3\sigma$) & 99.6\% & 99.3\% & 99.7\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Análisis del Kernel y Propiedades Espectrales}
+
+Los hiperparámetros del kernel aprendidos revelan la estructura de la dinámica del sistema. La Tabla~\ref{tab:kernels} muestra las escalas de longitud optimizadas para cada variable, promediadas entre los tres GP.
+
+\begin{table}[t]
+\centering
+\caption{Hiperparámetros del kernel aprendidos (Matérn $\nu=3/2$).}
+\label{tab:kernels}
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Variable} & $\ell$ & $\sigma^2$ & $\sigma_n^2$ & LML \\
+\midrule
+Temperatura & 2.14 & 0.89 & 0.011 & 252.5 \\
+Humedad & 1.87 & 0.94 & 0.008 & 794.8 \\
+CO$_2$ & 3.21 & 0.97 & 0.003 & 978.6 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La escala de longitud $\ell$ cuantifica la ``memoria'' de cada variable: el CO$_2$ tiene la escala de longitud más larga ($\ell = 3.21$), reflejando su dinámica más lenta, mientras que la humedad tiene la más corta ($\ell = 1.87$), consistente con su sensibilidad a cambios rápidos en ocupación y ventilación.
+
+\subsection{Comparación de Kernels}
+
+Comparamos tres opciones de kernel: Matérn ($\nu=3/2$), RBF, y Racional Cuadrático. La Tabla~\ref{tab:kernel_comp} reporta la log-verosimilitud marginal y RMSE para cada uno.
+
+\begin{table}[t]
+\centering
+\caption{Comparación de opciones de kernel. LML: log-verosimilitud marginal (mayor es mejor).}
+\label{tab:kernel_comp}
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Kernel} & \textbf{LML} & \textbf{RMSE$_T$} & \textbf{RMSE$_H$} & \textbf{RMSE$_{CO_2}$} \\
+\midrule
+Matérn ($\nu=3/2$) & \textbf{675.6} & \textbf{0.282} & \textbf{1.562} & \textbf{26.03} \\
+RBF & 673.1 & 0.291 & 1.598 & 26.41 \\
+Racional Cuadrático & 674.8 & 0.285 & 1.571 & 26.12 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El kernel Matérn logra el mejor rendimiento en todas las métricas, consistente con la expectativa teórica de que las dinámicas de sistemas físicos son a lo sumo diferenciables una vez. La suposición de suavidad infinita del kernel RBF es demasiado restrictiva, mientras que el kernel Racional Cuadrático se aproxima al rendimiento del Matérn pero requiere un hiperparámetro adicional para optimizar.
+
+\subsection{Detección de Anomalías}
+
+La Tabla~\ref{tab:anomalia_metrics} reporta las métricas cuantitativas de detección. El detector GP-CPS logra recall perfecto en todos los escenarios con mínimos falsos positivos.
+
+\begin{table}[t]
+\centering
+\caption{Rendimiento de detección de anomalías ($\tau = 2.0$).}
+\label{tab:anomalia_metrics}
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Escenario} & \textbf{Precisión} & \textbf{Recall} & \textbf{F1} & \textbf{FPR} \\
+\midrule
+Mal funcionamiento calefactor & 0.962 & 1.000 & 0.981 & 0.031 \\
+Fallo de ventilación & 0.941 & 1.000 & 0.970 & 0.047 \\
+Pico de ocupación & 0.976 & 1.000 & 0.988 & 0.019 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Simulación Multi-Paso}
+
+La Figura~\ref{fig:simulacion} muestra una simulación forward de 50 pasos desde un estado inicial. La incertidumbre del GP crece gradualmente con cada paso, reflejando la acumulación de error de predicción. Después de 50 pasos, el intervalo de confianza del 95\% abarca aproximadamente $\pm 0.5^\circ$C para temperatura, $\pm 3.2$\% para humedad, y $\pm 53$~ppm para CO$_2$.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig05_trajectory_simulation.png}
+\caption{Simulación forward de 50 pasos con intervalos de confianza del 95\%. La incertidumbre crece naturalmente a medida que se extiende la simulación.}
+\label{fig:simulacion}
+\end{figure}
+
+\subsection{Coste Computacional}
+
+El tiempo total de entrenamiento para los tres GP en el conjunto de entrenamiento (1,144 transiciones) fue de 188.7~segundos (3.1~minutos). La predicción en un solo punto de prueba requiere menos de 1~ms. La Tabla~\ref{tab:coste} desglosa el coste computacional.
+
+\begin{table}[t]
+\centering
+\caption{Desglose del coste computacional.}
+\label{tab:coste}
+\small
+\begin{tabular}{lrr}
+\toprule
+\textbf{Operación} & \textbf{Tiempo} & \textbf{Escalado} \\
+\midrule
+Generación de datos (10 escenarios) & 0.02~s & $\mathcal{O}(N)$ \\
+Entrenamiento GP (3 variables) & 188.7~s & $\mathcal{O}(N^3)$ \\
+Predicción individual & 0.7~ms & $\mathcal{O}(N)$ \\
+Simulación de 50 pasos & 35.0~ms & $\mathcal{O}(H \cdot N)$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Discusión}
+\label{sec:discusion}
+
+\subsection{Interpretación de los Resultados}
+
+Los resultados experimentales demuestran que los gemelos digitales basados en GP son viables para la simulación de CPS. Tres hallazgos merecen atención particular.
+
+Primero, los altos valores de $R^2$ ($>0.95$) en todas las variables sugieren que el conjunto de GP captura la dinámica esencial a pesar de la suposición de independencia entre dimensiones de salida. Esto se debe a que cada GP aprende el mapeo desde el vector completo de estado-control a una sola salida, modelando implícitamente las dependencias entre variables a través de las características de entrada compartidas.
+
+Segundo, el análisis de calibración de incertidumbre revela que las varianzas predictivas del GP son ligeramente conservadoras. Este conservadurismo es deseable para la detección de anomalías: las falsas alarmas son preferibles a anomalías no detectadas en aplicaciones CPS de seguridad crítica.
+
+Tercero, el análisis del kernel proporciona información interpretable sobre la dinámica del sistema. Las escalas de longitud aprendidas cuantifican la ``memoria'' temporal de cada variable, y las estimaciones de varianza del ruido capturan la estocasticidad inherente de cada canal de sensor.
+
+\subsection{Conexiones Teóricas}
+
+La efectividad del modelado basado en GP para dinámicas de CPS puede entenderse a través de varios lentes teóricos. Desde una perspectiva Bayesiana, la posterior del GP representa la distribución completa sobre funciones consistentes con los datos, proporcionando una base con principios para la cuantificación de incertidumbre.
+
+La conexión con redes neuronales anchas merece mención: una red neuronal de una sola capa con un número infinito de unidades ocultas y pesos i.i.d. converge a un Proceso Gaussiano con un kernel específico determinado por la función de activación y la distribución de pesos~\cite{neal1996, lee2018}. Este resultado, conocido como la correspondencia NNGP (Neural Network Gaussian Process), sugiere que los gemelos digitales basados en GP capturan implícitamente la capacidad de modelado de redes infinitamente anchas mientras proporcionan inferencia Bayesiana exacta.
+
+\subsection{Limitaciones}
+
+El framework actual tiene varias limitaciones. Primero, la suposición Markoviana (Ecuación~\ref{eq:transicion}) puede no cumplirse para sistemas con dependencias temporales de largo alcance o efectos de retardo. Segundo, el escalado $\mathcal{O}(N^3)$ del entrenamiento de GP limita la aplicabilidad a conjuntos de datos más allá de aproximadamente $10^4$ puntos sin aproximaciones dispersas. Tercero, la arquitectura de GP independientes no puede capturar correlaciones entre variables de salida, que pueden ser importantes para algunas aplicaciones. Cuarto, el modelo es estático y requiere reentrenamiento si la dinámica del sistema cambia (cambio de distribución).
+
+\subsection{Trabajo Futuro}
+
+Varias direcciones para trabajo futuro surgen de este estudio. Las aproximaciones de GP dispersos~\cite{quinonero2005} podrían escalar el framework a conjuntos de datos más grandes. Los GP multi-salida~\cite{alvarez2012} capturarían explícitamente las correlaciones entre variables. El aprendizaje profundo de kernels~\cite{wilson2016} podría descubrir automáticamente características relevantes a partir de datos de sensores sin procesar. El aprendizaje online permitiría gemelos digitales adaptativos que evolucionen con el sistema físico.
+
+\section{Conclusión}
+\label{sec:conclusion}
+
+Hemos presentado GP-CPS, un framework de Procesos Gaussianos para construir gemelos digitales basados en datos de Sistemas Ciber-Físicos. El framework aprende la dinámica del sistema a partir de datos de series temporales multivariantes utilizando un conjunto de regresores GP, proporciona cuantificación analítica de incertidumbre y detecta anomalías mediante desviaciones más allá de límites de confianza calibrados. Evaluado en un caso de estudio de Zona de Edificio Inteligente con cuatro variables interdependientes, GP-CPS alcanza $R^2 > 0.95$ en todas las variables, entrena en menos de 4 minutos en CPU, y demuestra detección efectiva de anomalías con puntuaciones F1 superiores a 0.97.
+
+Las fortalezas clave del framework son su eficiencia computacional (sin necesidad de GPU), cuantificación de incertidumbre con principios y análisis de kernel interpretable. Estas propiedades hacen que los gemelos digitales basados en GP sean particularmente adecuados para prototipado rápido, entornos educativos y contextos con recursos limitados donde los enfoques basados en difusión o aprendizaje profundo son impracticables.
+
+Todo el código, datos y resultados experimentales están disponibles públicamente~\url{https://github.com/jcalataiut-cli/AdMaths-GP-DigitalTwin}.
+
+\begin{thebibliography}{00}
+\bibitem{alvarez2012} M.~A.~\'Alvarez, L.~Rosasco, and N.~D.~Lawrence, ``Kernels for vector-valued functions: A review,'' \textit{Foundations and Trends in Machine Learning}, vol.~4, no.~3, 2012.
+\bibitem{goodfellow2014} I.~Goodfellow \textit{et al.}, ``Generative adversarial nets,'' in \textit{Proc. NeurIPS}, 2014.
+\bibitem{ho2020} J.~Ho, A.~Jain, and P.~Abbeel, ``Denoising diffusion probabilistic models,'' in \textit{Proc. NeurIPS}, 2020.
+\bibitem{kingma2013} D.~P.~Kingma and M.~Welling, ``Auto-encoding variational Bayes,'' in \textit{Proc. ICLR}, 2014.
+\bibitem{lee2015} E.~A.~Lee, ``The past, present and future of cyber-physical systems: A focus on models,'' \textit{Sensors}, vol.~15, no.~3, 2015.
+\bibitem{lee2018} J.~Lee \textit{et al.}, ``Deep neural networks as Gaussian processes,'' in \textit{Proc. ICLR}, 2018.
+\bibitem{ljung1999} L.~Ljung, \textit{System Identification: Theory for the User}, 2nd~ed. Prentice Hall, 1999.
+\bibitem{neal1996} R.~M.~Neal, \textit{Bayesian Learning for Neural Networks}. Springer, 1996.
+\bibitem{quinonero2005} J.~Qui\~nonero-Candela and C.~E.~Rasmussen, ``A unifying view of sparse approximate Gaussian process regression,'' \textit{Journal of Machine Learning Research}, vol.~6, 2005.
+\bibitem{rasmussen2006} C.~E.~Rasmussen and C.~K.~I.~Williams, \textit{Gaussian Processes for Machine Learning}. MIT Press, 2006.
+\bibitem{wilson2016} A.~G.~Wilson, Z.~Hu, R.~Salakhutdinov, and E.~P.~Xing, ``Deep kernel learning,'' in \textit{Proc. AISTATS}, 2016.
+\bibitem{yaacoub2020} J.-P.~A.~Yaacoub \textit{et al.}, ``Cyber-physical systems security: Limitations, issues and future trends,'' \textit{Microprocessors and Microsystems}, vol.~77, 2020.
+\bibitem{yuan2019} Y.~Yuan \textit{et al.}, ``Data driven discovery of cyber physical systems,'' \textit{Nature Communications}, vol.~10, no.~1, 2019.
+\bibitem{zhang2022} K.~Zhang \textit{et al.}, ``Advancements in industrial cyber-physical systems: An overview and perspectives,'' \textit{IEEE Trans. Industrial Informatics}, vol.~19, no.~1, 2022.
+\end{thebibliography}
+
+\end{document}
