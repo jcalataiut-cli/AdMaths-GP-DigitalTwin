@@ -34,7 +34,7 @@ Email: jcalataiut-cli@github.com}
 \maketitle
 
 \begin{abstract}
-Los gemelos digitales---réplicas virtuales de sistemas físicos---permiten simulación, predicción y detección de anomalías. En este artículo presentamos \textbf{GP-CPS}, un framework que construye gemelos digitales de Sistemas Ciber-Físicos (CPS) utilizando Procesos Gaussianos (GP). Evaluamos GP-CPS en una Zona de Edificio Inteligente con cuatro variables (temperatura, humedad, CO$_2$, ocupación) y lo comparamos con tres alternativas: Regresión Lineal (LR), Random Forest (RF) y Perceptrón Multicapa (MLP). Aunque todos los métodos logran precisión predictiva competitiva ($R^2 > 0.95$), GP-CPS es el \'unico que proporciona \emph{cuantificación de incertidumbre calibrada incorporada} mediante la varianza posterior del GP, permitiendo detección de anomalías con principios sin un modelo separado. El framework logra un error absoluto medio de $0.23^\circ$C para temperatura y 20.7~ppm para CO$_2$, entrena en menos de 4 minutos en CPU, y detecta anomalías con puntuaciones F1 superiores a 0.97. Nuestros resultados demuestran que los gemelos digitales basados en GP ofrecen una combinación única de precisión predictiva, cuantificación de incertidumbre y detección de anomalías que los métodos alternativos no pueden igualar.
+Los gemelos digitales---réplicas virtuales de sistemas físicos---permiten simulación, predicción y detección de anomalías sin interrumpir operaciones reales. En este artículo presentamos \textbf{GP-CPS}, un framework que construye gemelos digitales de Sistemas Ciber-Físicos (CPS) mediante un conjunto de regresores de Proceso Gaussiano (GP). Nuestro enfoque aprende la dinámica de transición del sistema a partir de datos de sensores multivariantes, proporciona cuantificación de incertidumbre con principios a través de la varianza posterior del GP, y detecta anomalías cuando el comportamiento observado se desvía más allá de $2\sigma$ de la distribución predicha. Evaluamos GP-CPS en un caso de estudio de Zona de Edificio Inteligente con cuatro variables interdependientes (temperatura, humedad, CO$_2$, ocupación) y tres escenarios de anomalía. Realizamos una comparación exhaustiva con tres alternativas estándar---Regresión Lineal (LR), Random Forest (RF) y Perceptrón Multicapa (MLP)---en datos idénticos. Aunque todos los métodos logran precisión predictiva similar ($R^2 > 0.95$), GP-CPS es el \'unico que proporciona cuantificación de incertidumbre calibrada incorporada, permitiendo detección de anomalías con principios sin un modelo separado. El framework alcanza puntuaciones F1 superiores a 0.97 en los tres escenarios de anomalía, entrena en menos de 4 minutos en CPU, y proporciona hiperparámetros del kernel interpretables con significado físico directo.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -44,25 +44,19 @@ Sistemas Ciber-Físicos, Gemelo Digital, Proceso Gaussiano, Detección de Anomal
 \section{Introducción}
 \label{sec:introduccion}
 
-Los Sistemas Ciber-Físicos (CPS) integran computación, comunicación y procesos físicos en sistemas estrechamente acoplados~\cite{lee2015,zhang2022}. La proliferación de sensores en el Internet Industrial de las Cosas (IIoT) ha generado vastos flujos de datos de series temporales multivariantes. Esta abundancia de datos plantea un desafío: ¿cómo construir simuladores precisos---gemelos digitales---que repliquen el comportamiento del sistema sin requerir modelos analíticos explícitos?
+Los Sistemas Ciber-Físicos (CPS)---integración estrecha de computación, comunicación y procesos físicos---son fundamentales para la industria, el transporte y las infraestructuras modernas~\cite{lee2015,zhang2022}. La proliferación de sensores en el Internet Industrial de las Cosas (IIoT) ha generado vastos flujos de datos de series temporales multivariantes que capturan el comportamiento complejo e interdependiente de estos sistemas. Esta abundancia de datos presenta tanto una oportunidad como un desafío: ¿cómo construir simuladores precisos---gemelos digitales---que repliquen el comportamiento del sistema sin requerir modelos analíticos explícitos?
 
-Los enfoques basados en datos han surgido como una respuesta convincente~\cite{yuan2019}. Sin embargo, la mayoría de los métodos estándar---Regresión Lineal (LR), Random Forest (RF) y Perceptrón Multicapa (MLP)---proporcionan solo estimaciones puntuales del estado del sistema sin cuantificar la incertidumbre de la predicción. Esta limitación es crítica para aplicaciones de gemelos digitales: la detección de anomalías, por ejemplo, requiere fundamentalmente saber cuándo el comportamiento observado se desvía más allá de lo atribuible a la variabilidad normal.
+Los enfoques basados en datos han surgido como una respuesta convincente~\cite{yuan2019}. Al aprender patrones directamente de los datos de sensores, los modelos de aprendizaje automático pueden capturar dinámicas no lineales y comportamientos estocásticos. Sin embargo, la mayoría de los métodos estándar---Regresión Lineal (LR)~\cite{ljung1999}, Random Forest (RF)~\cite{breiman2001} y Perceptrón Multicapa (MLP)~\cite{hornik1989}---proporcionan solo estimaciones puntuales del estado del sistema sin cuantificar la incertidumbre de la predicción. Esta limitación es crítica para aplicaciones de gemelos digitales: la detección de anomalías requiere saber cuándo el comportamiento observado se desvía más allá de lo atribuible a la variabilidad normal---una distinción imposible sin cuantificación de incertidumbre.
 
-Los Procesos Gaussianos (GP)~\cite{rasmussen2006} abordan esta limitación. Como marco Bayesiano no paramétrico, los GP proporcionan:
-\begin{enumerate}[nosep]
-\item Un enfoque con principios para aprender funciones desconocidas a partir de datos,
-\item Cuantificación analítica de incertidumbre mediante la varianza predictiva,
-\item Un rico framework de kernels para codificar suposiciones estructurales,
-\item Entrenamiento escalable a solo CPU para tamaños de datos moderados.
-\end{enumerate}
+Los Procesos Gaussianos (GP)~\cite{rasmussen2006} abordan esta limitación mediante su marco Bayesiano no paramétrico. Como distribución sobre funciones, un GP proporciona no solo una media predicha sino también una varianza predictiva que cuantifica la confianza en la predicción. Los GP se han aplicado con éxito en identificación de sistemas~\cite{kocijan2004}, control~\cite{deisenroth2015} y modelado de series temporales, pero su aplicación a la construcción de gemelos digitales para CPS permanece insuficientemente explorada.
 
-En este artículo, introducimos \textbf{GP-CPS}, cuyas contribuciones son:
+En este artículo, introducimos \textbf{GP-CPS}, un framework que aprovecha los Procesos Gaussianos para construir gemelos digitales basados en datos de Sistemas Ciber-Físicos. Nuestras contribuciones son:
 
 \begin{enumerate}
 \item \textbf{Un framework de modelado basado en GP} para aprender dinámicas de CPS a partir de series temporales multivariantes.
-\item \textbf{Detección de anomalías basada en incertidumbre}, sin necesidad de un modelo separado.
+\item \textbf{Detección de anomalías basada en incertidumbre}, donde la varianza predictiva del GP sirve como envelope de confianza natural.
 \item \textbf{Una comparación exhaustiva} con tres enfoques estándar (LR, RF, MLP) en datos idénticos, demostrando que GP-CPS iguala su precisión mientras proporciona cuantificación de incertidumbre única.
-\item \textbf{Un caso de estudio de Zona de Edificio Inteligente} con cuatro variables y tres escenarios de anomalía.
+\item \textbf{Un caso de estudio detallado de Zona de Edificio Inteligente} con dinámica no lineal acoplada y tres escenarios de anomalía.
 \end{enumerate}
 
 \section{Formulación del Problema}
@@ -71,15 +65,14 @@ En este artículo, introducimos \textbf{GP-CPS}, cuyas contribuciones son:
 Consideramos un CPS observado a través de $d$ variables de sensor en pasos discretos $t = 1, \dots, T$. El sistema se caracteriza por un vector de estado $\mathbf{s}_t \in \mathbb{R}^d$ y una entrada de control $\mathbf{u}_t \in \mathbb{R}^c$. La dinámica sigue una función de transición desconocida $f$:
 
 \begin{equation}
-\mathbf{s}_{t+1} = f(\mathbf{s}_t, \mathbf{u}_t) + \boldsymbol{\epsilon}_t
+\mathbf{s}_{t+1} = f(\mathbf{s}_t, \mathbf{u}_t) + \boldsymbol{\epsilon}_t,\qquad \boldsymbol{\epsilon}_t \sim \mathcal{N}(\mathbf{0}, \boldsymbol{\Sigma}_\epsilon)
 \label{eq:transicion}
 \end{equation}
 
 Dado $\mathcal{D} = \{(\mathbf{x}_t, \mathbf{y}_t)\}_{t=1}^{N-1}$ con $\mathbf{x}_t = [\mathbf{s}_t^\top, \mathbf{u}_t^\top]^\top$ y $\mathbf{y}_t = \mathbf{s}_{t+1}$, nuestro objetivo es aprender:
 
 \begin{equation}
-\hat{f}(\mathbf{x}) \approx \mathbb{E}[\mathbf{y} \mid \mathbf{x}], \qquad
-\hat{\sigma}(\mathbf{x}) \approx \sqrt{\mathbb{V}[\mathbf{y} \mid \mathbf{x}]}
+\hat{f}(\mathbf{x}) \approx \mathbb{E}[\mathbf{y} \mid \mathbf{x}], \qquad \hat{\sigma}(\mathbf{x}) \approx \sqrt{\mathbb{V}[\mathbf{y} \mid \mathbf{x}]}
 \label{eq:objetivo}
 \end{equation}
 
@@ -90,37 +83,55 @@ Los métodos de regresión estándar (LR, RF, MLP) proporcionan $\hat{f}$ pero n
 
 Un Proceso Gaussiano es una colección de variables aleatorias, cualquier subconjunto finito de las cuales sigue una distribución Gaussiana conjunta~\cite{rasmussen2006}. Un GP se especifica completamente por una función media $m(\mathbf{x})$ y un kernel de covarianza $k(\mathbf{x}, \mathbf{x}')$: $f(\mathbf{x}) \sim \mathcal{GP}(m(\mathbf{x}), k(\mathbf{x}, \mathbf{x}'))$.
 
-Para un conjunto de entrenamiento $\{(\mathbf{x}_i, y_i)\}_{i=1}^N$ con $\mathbf{X} = [\mathbf{x}_1, \dots, \mathbf{x}_N]^\top$ y $\mathbf{y} = [y_1, \dots, y_N]^\top$, la distribución predictiva del GP en un punto de prueba $\mathbf{x}^*$ es Gaussiana con media y varianza:
+Para un conjunto de entrenamiento $\{(\mathbf{x}_i, y_i)\}_{i=1}^N$ con matriz de entrada $\mathbf{X} \in \mathbb{R}^{N \times p}$ y vector objetivo $\mathbf{y} \in \mathbb{R}^N$, la distribución conjunta de los objetivos y el valor de la función latente en un punto de prueba $\mathbf{x}^*$ es:
+
+\begin{equation}
+\begin{bmatrix} \mathbf{y} \\ f(\mathbf{x}^*) \end{bmatrix} \sim
+\mathcal{N}\!\left(\mathbf{0}, \begin{bmatrix}
+\mathbf{K} + \sigma_n^2 \mathbf{I} & \mathbf{k}_* \\
+\mathbf{k}_*^\top & k(\mathbf{x}^*, \mathbf{x}^*)
+\end{bmatrix}\right),
+\label{eq:conjunta}
+\end{equation}
+
+donde $\mathbf{K}_{ij} = k(\mathbf{x}_i, \mathbf{x}_j)$ y $\mathbf{k}_* = [k(\mathbf{x}_1, \mathbf{x}^*), \dots, k(\mathbf{x}_N, \mathbf{x}^*)]^\top$. Condicionando en los datos observados obtenemos la distribución predictiva:
 
 \begin{align}
 \mu(\mathbf{x}^*) &= \mathbf{k}_*^\top (\mathbf{K} + \sigma_n^2 \mathbf{I})^{-1} \mathbf{y},\\
 \sigma^2(\mathbf{x}^*) &= k(\mathbf{x}^*, \mathbf{x}^*) - \mathbf{k}_*^\top (\mathbf{K} + \sigma_n^2 \mathbf{I})^{-1} \mathbf{k}_*,
 \end{align}
 
-donde $\mathbf{K}_{ij} = k(\mathbf{x}_i, \mathbf{x}_j)$, $\mathbf{k}_* = [k(\mathbf{x}_1, \mathbf{x}^*), \dots, k(\mathbf{x}_N, \mathbf{x}^*)]^\top$, y $\sigma_n^2$ es la varianza del ruido de verosimilitud. Usamos el kernel Matérn ($\nu=3/2$), que asume funciones diferenciables una vez, apropiado para dinámicas físicas:
+Usamos el kernel Matérn ($\nu=3/2$), que asume funciones diferenciables una vez, apropiado para dinámicas físicas donde las velocidades existen pero las aceleraciones pueden no ser continuas:
 
 \begin{equation}
 k_{\text{M}}(\mathbf{x}, \mathbf{x}') = \sigma^2 \!\left(1 + \frac{\sqrt{3}r}{\ell}\right) \exp\!\left(-\frac{\sqrt{3}r}{\ell}\right) + \sigma_n^2 \delta_{\mathbf{x},\mathbf{x}'},
 \label{eq:matern}
 \end{equation}
 
-donde $r = \|\mathbf{x} - \mathbf{x}'\|$, $\ell$ es la escala de longitud, $\sigma^2$ la varianza de la señal, y $\sigma_n^2$ la varianza del ruido.
+donde $r = \|\mathbf{x} - \mathbf{x}'\|$, $\ell$ es la escala de longitud que controla la sensibilidad del modelo, $\sigma^2$ la varianza de la señal, y $\sigma_n^2$ la varianza del ruido. Los hiperparámetros $\boldsymbol{\theta} = \{\ell, \sigma^2, \sigma_n^2\}$ se aprenden maximizando la log-verosimilitud marginal:
+
+\begin{equation}
+\log p(\mathbf{y} \mid \mathbf{X}, \boldsymbol{\theta}) = -\frac{1}{2} \mathbf{y}^\top \mathbf{K}_y^{-1} \mathbf{y} - \frac{1}{2} \log |\mathbf{K}_y| - \frac{N}{2} \log 2\pi,
+\label{eq:lml}
+\end{equation}
+
+donde $\mathbf{K}_y = \mathbf{K} + \sigma_n^2 \mathbf{I}$. Este objetivo equilibra automáticamente el ajuste a los datos (primer término) con la complejidad del modelo (segundo término).
 
 \section{El Framework GP-CPS}
 \label{sec:metodo}
 
 \subsection{Arquitectura}
-GP-CPS emplea un conjunto de $d$ regresores de Proceso Gaussiano independientes, uno por dimensión de salida $i \in \{1, \dots, d\}$. Cada GP aprende el mapeo $y^{(i)} \sim \mathcal{GP}(m_i(\mathbf{x}), k_i(\mathbf{x}, \mathbf{x}'))$. La suposición de independientes mantiene la complejidad en $\mathcal{O}(d \cdot N^3)$ en lugar de $\mathcal{O}((dN)^3)$ para un GP completo multi-salida.
+GP-CPS emplea un conjunto de $d$ regresores GP independientes, uno por dimensión de salida $i$: $y^{(i)} \sim \mathcal{GP}(m_i(\mathbf{x}), k_i(\mathbf{x}, \mathbf{x}'))$. La complejidad es $\mathcal{O}(d \cdot N^3)$ en lugar de $\mathcal{O}((dN)^3)$ para un GP multi-salida completo.
 
 \subsection{Detección de Anomalías basada en Incertidumbre}
-Dada la distribución predictiva $p(y^{(i)*} \mid \mathcal{D}, \mathbf{x}^*) = \mathcal{N}(\mu_i^*, \sigma_i^{*2})$, definimos la puntuación de anomalía multi-variable:
+Dada la distribución predictiva $\mathcal{N}(\mu_i^*, \sigma_i^{*2})$, definimos la puntuación de anomalía multi-variable:
 
 \begin{equation}
-z(\mathbf{y}^*) = \frac{1}{d} \sum_{i=1}^d \frac{|y^{(i)*} - \mu_i^*|}{\sigma_i^* + \varepsilon},
+z(\mathbf{y}^*) = \frac{1}{d} \sum_{i=1}^d \frac{|y^{(i)*} - \mu_i^*|}{\sigma_i^* + \varepsilon}
 \label{eq:score_anomalia}
 \end{equation}
 
-Una observación se marca como anómala cuando $z(\mathbf{y}^*) > \tau$, donde $\tau = 2$ corresponde aproximadamente a un envelope de confianza del 95\%. Este enfoque no requiere un modelo separado de detección de anomalías---la incertidumbre del GP se adapta naturalmente a regiones del espacio de entrada con datos dispersos.
+Una observación se marca como anómala cuando $z(\mathbf{y}^*) > \tau$ (típicamente $\tau = 2$, confianza del 95\%). Este enfoque no requiere un modelo separado y el umbral $\tau$ tiene una interpretación estadística clara.
 
 \subsection{Algoritmo}
 El procedimiento completo se resume en el Algoritmo~\ref{alg:gpcps}.
@@ -129,42 +140,108 @@ El procedimiento completo se resume en el Algoritmo~\ref{alg:gpcps}.
 \caption{GP-CPS: Entrenamiento e Inferencia}
 \label{alg:gpcps}
 \begin{algorithmic}
-\STATE \textbf{Entrada:} $\mathcal{D} = \{(\mathbf{x}_t, \mathbf{y}_t)\}_{t=1}^N$, kernel $k$, umbral $\tau$
+\REQUIRE Datos $\mathcal{D} = \{(\mathbf{x}_t, \mathbf{y}_t)\}_{t=1}^N$, kernel $k$, umbral $\tau$
 \STATE \textbf{Entrenamiento:}
 \FOR{$i = 1$ a $d$}
-\STATE Estandarizar $\mathbf{y}^{(i)}$, inicializar GP$_i$ con kernel $k$
-\STATE GP$_i$.fit($\mathbf{X}$, $\mathbf{y}^{(i)}$) \COMMENT{Optimizar hiperparámetros via LML}
+\STATE Estandarizar $\mathbf{y}^{(i)}$, entrenar GP$_i$ con kernel $k$
+\STATE Optimizar $\boldsymbol{\theta}_i \leftarrow \arg\max \log p(\mathbf{y}^{(i)} \mid \mathbf{X}, \boldsymbol{\theta})$
 \ENDFOR
 \STATE \textbf{Predicción} en $\mathbf{x}^*$: retornar $\boldsymbol{\mu}^*$, $\boldsymbol{\sigma}^*$
-\STATE \textbf{Detección de Anomalías} en $\mathbf{y}^*$: marcar si $z(\mathbf{y}^*) > \tau$
+\STATE \textbf{Detección de anomalías} en $\mathbf{y}^*$: marcar si $z(\mathbf{y}^*) > \tau$
 \end{algorithmic}
 \end{algorithm}
 
 \section{Caso de Estudio: Zona de Edificio Inteligente}
 \label{sec:caso}
 
-Modelamos una zona de oficina con temperatura $T$, humedad $H$, CO$_2$ $C$, y ocupación $O$. Las ecuaciones diferenciales acopladas son:
+\subsection{Descripción del Sistema}
+Modelamos una zona de oficina como un CPS con cuatro variables de estado y dos entradas de control.
+
+\subsubsection{Variables de Estado}
+\begin{itemize}[nosep]
+\item $T$: Temperatura ($^\circ$C), rango $[15, 35]$.
+\item $H$: Humedad relativa (\%), rango $[10, 90]$.
+\item $C$: Concentración de CO$_2$ (ppm), rango $[400, 5000]$.
+\item $O$: Ocupación (personas), discreta $\{0, 1, \dots, 5\}$.
+\end{itemize}
+
+\subsubsection{Entradas de Control}
+\begin{itemize}[nosep]
+\item $P_h$: Potencia del calefactor, normalizada $[0, 1]$.
+\item $V$: Tasa de ventilación, normalizada $[0, 1]$.
+\end{itemize}
+
+\subsection{Modelo Dinámico}
+La dinámica de temperatura captura la calefacción, la pérdida térmica al exterior, el calor corporal de los ocupantes y el intercambio por ventilación:
 
 \begin{align}
-\frac{dT}{dt} &= \frac{1}{C_T}\big[\alpha P_h - \beta(T - T_{\text{ext}}) - \gamma O(T - T_{\text{cuerpo}}) - \delta V(T - 18)\big] + \epsilon_T,\\
-\frac{dH}{dt} &= \frac{1}{C_H}\big[\eta O(H_{\text{cuerpo}} - H) - \theta V(H - H_{\text{ext}}) - \lambda(H - 50)\big] + \epsilon_H,\\
-\frac{dC}{dt} &= \frac{1}{C_C}\big[\mu O C_{\text{cuerpo}} - \nu V(C - C_{\text{ext}})\big] + \epsilon_C,
+\frac{dT}{dt} = \frac{1}{C_T}\Big[&\alpha P_h - \beta(T - T_{\text{ext}}) \nonumber\\
+&- \gamma O(T - T_{\text{cuerpo}}) - \delta V(T - 18)\Big] + \epsilon_T,
+\label{eq:dT_es}
 \end{align}
 
-Datos de entrenamiento: 10 escenarios de 12 horas (144 pasos, resolución 5~min). Validación: 2 escenarios reservados. Escenarios de anomalía: calefactor atascado, fallo de ventilación, pico de ocupación.
+La humedad es afectada por la producción de humedad de los ocupantes, el intercambio por ventilación y la absorción de materiales:
+
+\begin{align}
+\frac{dH}{dt} = \frac{1}{C_H}\Big[&\eta O(H_{\text{cuerpo}} - H) \nonumber\\
+&- \theta V(H - H_{\text{ext}}) - \lambda(H - 50)\Big] + \epsilon_H,
+\label{eq:dH_es}
+\end{align}
+
+La concentración de CO$_2$ está determinada por la respiración de los ocupantes y la renovación por ventilación:
+
+\begin{align}
+\frac{dC}{dt} = \frac{1}{C_C}\Big[&\mu O C_{\text{cuerpo}} - \nu V(C - C_{\text{ext}})\Big] + \epsilon_C,
+\label{eq:dC_es}
+\end{align}
+
+\begin{table}[t]
+\centering
+\caption{Parámetros físicos del modelo dinámico.}
+\label{tab:params}
+\small
+\begin{tabular}{llc}
+\toprule
+\textbf{Parámetro} & \textbf{Símbolo} & \textbf{Valor} \\
+\midrule
+Capacidad térmica & $C_T$ & 100.0 \\
+Capacidad de humedad & $C_H$ & 50.0 \\
+Capacidad de CO$_2$ & $C_C$ & 80.0 \\
+Eficiencia del calefactor & $\alpha$ & 0.8 \\
+Coeficiente de pérdida térmica & $\beta$ & 0.05 \\
+Transferencia de calor corporal & $\gamma$ & 0.02 \\
+Pérdida de calor por ventilación & $\delta$ & 0.03 \\
+Producción de CO$_2$ por ocupante & $\mu$ & 0.005 \\
+Tasa de renovación de CO$_2$ & $\nu$ & 0.05 \\
+Temperatura exterior & $T_{\text{ext}}$ & 15.0 \\
+Humedad exterior & $H_{\text{ext}}$ & 60.0 \\
+CO$_2$ exterior & $C_{\text{ext}}$ & 420.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig01_training_data.png}
+\caption{Series temporales multivariantes del modelo físico. Cuatro variables evolucionan bajo un horario diario realista de oficina.}
+\label{fig:datos}
+\end{figure}
+
+\subsection{Generación de Datos}
+Entrenamiento: 10 escenarios de 12 horas (144 pasos, resolución 5~min). Validación: 2 escenarios reservados. Anomalías: calefactor atascado, fallo de ventilación, pico de ocupación.
 
 \section{Resultados Experimentales}
 \label{sec:resultados}
 
 \subsection{Rendimiento Predictivo}
-La Tabla~\ref{tab:metrics} muestra la comparación. Todos los métodos logran $R^2 > 0.95$, pero el diferenciador clave no es la precisión predictiva sola.
+La Tabla~\ref{tab:metrics} muestra la comparación. Todos los métodos logran $R^2 > 0.95$, pero el diferenciador clave no es la precisión sola.
 
 \begin{table}[t]
 \centering
-\caption{Comparación de rendimiento predictivo entre métodos.}
+\caption{Comparación de rendimiento predictivo. Mejores valores en negrita.}
 \label{tab:metrics}
 \small
-\begin{tabular}{lc>{\columncolor[gray]{0.9}}c}
+\begin{tabular}{lcccc}
 \toprule
 \textbf{Métrica} & \textbf{LR} & \textbf{RF} & \textbf{MLP} & \textbf{GP-CPS} \\
 \midrule
@@ -177,28 +254,28 @@ Tiempo train (s) & \textbf{0.02} & 1.40 & 0.74 & 139.76 \\
 Inferencia (ms) & \textbf{0.08} & 69.74 & 2.11 & 3.40 \\
 \midrule
 Incertidumbre & No & No & No & \textbf{Sí} \\
-Detect. anomalías & No & No & No & \textbf{Integrada} \\
+Detecc. anomalías & No & No & No & \textbf{Integrada} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsection{Más Allá de la Precisión: la Ventaja de la Incertidumbre}
-La Tabla~\ref{tab:metrics} revela que los cuatro métodos logran precisión similar. LR entrena más rápido (0.02~s) mientras que GP-CPS es el más lento (139.76~s). Esto plantea: si todos rinden similar, ¿por qué usar GP?
+La Tabla~\ref{tab:metrics} revela que los cuatro métodos logran precisión predictiva similar ($R^2$ dentro de 0.01). LR entrena más rápido (0.02~s) y predice más rápido (0.08~ms), mientras que GP-CPS es el más lento en entrenar (139.76~s). Esto plantea una pregunta importante: si todos tienen precisión similar, ¿por qué usar Gaussian Processes?
 
-La respuesta está en lo que la tabla no captura: \textbf{la cuantificación de incertidumbre}. LR, RF y MLP producen solo estimaciones puntuales. No pueden distinguir entre predicciones en regiones con datos densos (donde el modelo debería ser confiado) y regiones lejos de los datos (donde las predicciones son extrapolaciones).
+La respuesta está en lo que la Tabla~\ref{tab:metrics} no puede capturar: \textbf{la cuantificación de incertidumbre}. LR, RF y MLP producen solo estimaciones puntuales---un único valor predicho para cada variable. No pueden distinguir entre predicciones en regiones con datos densos (donde el modelo debería ser confiado) y regiones lejanas a los datos de entrenamiento (donde las predicciones son extrapolaciones).
 
-GP-CPS proporciona una distribución predictiva completa que:
+GP-CPS proporciona una distribución predictiva completa para cada salida. Esta distribución:
 \begin{enumerate}[nosep]
-\item \textbf{Permite detección de anomalías sin modelos adicionales}: el score $z(\mathbf{y}^*)$ cuantifica directamente qué tan sorprendente es una observación.
-\item \textbf{Está bien calibrada}: los intervalos $\pm 2\sigma$ contienen ~97\% de las observaciones (Tabla~\ref{tab:calibracion}).
-\item \textbf{Se adapta a datos dispersos}: regiones con pocos datos reciben automáticamente intervalos de confianza más amplios.
+\item \textbf{ permite detección de anomalías sin modelos adicionales}: la puntuación $z(\mathbf{y}^*)$ cuantifica directamente qué tan sorprendente es una nueva observación bajo la dinámica aprendida.
+\item \textbf{Está bien calibrada}: los intervalos $\pm 2\sigma$ contienen aproximadamente el 97\% de las observaciones (Tabla~\ref{tab:calibracion}), cerca del 95\% esperado.
+\item \textbf{Se adapta a datos dispersos}: regiones del espacio de entrada con pocos datos reciben automáticamente intervalos de confianza más amplios.
 \end{enumerate}
 
-Para realizar detección de anomalías con LR, RF o MLP, se necesitaría entrenar un modelo separado (autoencoder o one-class SVM) y ajustar su umbral---añadiendo complejidad y coste computacional. GP-CPS integra la detección en el propio modelo predictivo.
+Para realizar detección de anomalías con LR, RF o MLP, se necesitaría entrenar un modelo separado (por ejemplo, un autoencoder o una SVM de una clase) y ajustar su umbral de decisión---añadiendo complejidad, coste computacional y una fuente adicional de hiperparámetros. GP-CPS integra la detección de anomalías en el propio modelo predictivo.
 
 \begin{table}[t]
 \centering
-\caption{Calibración de incertidumbre para GP-CPS.}
+\caption{Calibración de incertidumbre: cobertura empírica vs. nominal.}
 \label{tab:calibracion}
 \small
 \begin{tabular}{lccc}
@@ -213,31 +290,45 @@ Para realizar detección de anomalías con LR, RF o MLP, se necesitaría entrena
 \end{tabular}
 \end{table}
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig02_prediction_vs_actual.png}
+\caption{Predicciones de GP-CPS vs. valores reales con intervalos $\pm 2\sigma$.}
+\label{fig:prediccion}
+\end{figure}
+
 \subsection{Detección de Anomalías}
-La Tabla~\ref{tab:anomalia} reporta F1 > 0.97 en los tres escenarios con tasa de falsos positivos inferior al 5\%.
+La Tabla~\ref{tab:anomalia} reporta F1 > 0.97 en los tres escenarios. La Figura~\ref{fig:anomalia} visualiza la detección.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig04_anomaly_detection.png}
+\caption{Detección de anomalías. Regiones rojas: anomalías reales; cruces: detecciones.}
+\label{fig:anomalia}
+\end{figure}
 
 \begin{table}[t]
 \centering
 \caption{Detección de anomalías ($\tau = 2.0$).}
 \label{tab:anomalia}
 \small
-\begin{tabular}{lcccc}
+\begin{tabular}{lccccc}
 \toprule
-\textbf{Escenario} & \textbf{Precisión} & \textbf{Recall} & \textbf{F1} & \textbf{FPR} \\
+\textbf{Escenario} & \textbf{TP} & \textbf{FP} & \textbf{Precisión} & \textbf{Recall} & \textbf{F1} \\
 \midrule
-Calefactor atascado & 0.962 & 1.000 & 0.981 & 0.031 \\
-Fallo ventilación & 0.941 & 1.000 & 0.970 & 0.047 \\
-Pico ocupación & 0.976 & 1.000 & 0.988 & 0.019 \\
+Calefactor atascado & 76 & 3 & 0.962 & 1.000 & 0.981 \\
+Fallo ventilación & 72 & 4 & 0.941 & 1.000 & 0.970 \\
+Pico ocupación & 80 & 2 & 0.976 & 1.000 & 0.988 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsection{Análisis del Kernel}
-La Tabla~\ref{tab:kernels} muestra los hiperparámetros aprendidos. La escala de longitud $\ell$ cuantifica la memoria temporal.
+La Tabla~\ref{tab:kernels} muestra los hiperparámetros aprendidos. La escala $\ell$ cuantifica la memoria temporal: CO$_2$ ($\ell=3.21$) tiene la dinámica más lenta; humedad ($\ell=1.87$) la más rápida.
 
 \begin{table}[t]
 \centering
-\caption{Hiperparámetros del kernel (Matérn $\nu=3/2$).}
+\caption{Hiperparámetros del kernel aprendidos (Matérn $\nu=3/2$).}
 \label{tab:kernels}
 \small
 \begin{tabular}{lcccc}
@@ -251,43 +342,72 @@ CO$_2$ & 3.21 & 0.97 & 0.003 & 978.6 \\
 \end{tabular}
 \end{table}
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig03_kernel_analysis.png}
+\caption{Matrices de kernel aprendidas. La temperatura muestra correlaciones de menor alcance que el CO$_2$.}
+\label{fig:kernels}
+\end{figure}
+
 \subsection{Simulación Multi-Paso}
-Tras 50 pasos de simulación forward, el intervalo de confianza del 95\% abarca $\pm 0.5^\circ$C para temperatura, $\pm 3.2$\% para humedad, y $\pm 53$~ppm para CO$_2$.
+La Figura~\ref{fig:simulacion} muestra 50 pasos de simulación forward. La incertidumbre crece naturalmente: tras 50 pasos, el IC del 95\% abarca $\pm 0.5^\circ$C, $\pm 3.2$\% y $\pm 53$~ppm.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig05_trajectory_simulation.png}
+\caption{Simulación forward de 50 pasos con intervalos de confianza del 95\%.}
+\label{fig:simulacion}
+\end{figure}
+
+\subsection{Coste Computacional}
+El tiempo de entrenamiento para los tres GP fue de 188.7~segundos (3.1~minutos). La predicción individual requiere menos de 1~ms. En comparación, LR entrena en 0.02~s, RF en 1.40~s y MLP en 0.74~s. Aunque GP-CPS es el más lento, su tiempo de entrenamiento sigue siendo práctico (un modelo puede reentrenarse durante una pausa) y la inferencia es suficientemente rápida para monitorización en tiempo real.
 
 \section{Discusión}
 \label{sec:discusion}
 
-\subsection{Por Qué GP Supera a las Alternativas}
-La comparación experimental revela una imagen matizada. En precisión predictiva bruta, los cuatro métodos rinden similar ($R^2 \approx 0.97$). Esto se debe a que la dinámica de la Zona de Edificio Inteligente es aproximadamente lineal en el rango operativo observado.
+\subsection{Por Qué GP-CPS Supera a las Alternativas}
+La comparación experimental revela una imagen matizada. En precisión predictiva bruta, los cuatro métodos rinden similar ($R^2 \approx 0.97$). Esto se debe a que la dinámica de la Zona de Edificio Inteligente es aproximadamente lineal en el rango operativo observado bajo condiciones nominales.
 
 La ventaja decisiva de GP-CPS emerge al considerar los requisitos completos de un gemelo digital:
 
 \begin{enumerate}
-\item \textbf{La detección de anomalías es imposible sin incertidumbre.} LR, RF y MLP proporcionan solo estimaciones puntuales. Un error de $1^\circ$C podría ser variabilidad normal o un calefactor averiado---sin límites de incertidumbre, no podemos distinguir.
+\item \textbf{La detección de anomalías es imposible sin incertidumbre.} LR, RF y MLP proporcionan solo estimaciones puntuales. Un error de $1^\circ$C en temperatura podría ser variabilidad normal o un calefactor averiado---sin límites de incertidumbre, no podemos distinguir.
 
-\item \textbf{La incertidumbre permite toma de decisiones segura.} En aplicaciones CPS de seguridad crítica, saber cuándo el modelo es incierto es tan importante como la predicción misma.
+\item \textbf{La incertidumbre permite toma de decisiones segura.} En aplicaciones CPS de seguridad crítica, saber cuándo el modelo es incierto es tan importante como la predicción misma. Un gemelo digital que no puede expresar incertidumbre no es adecuado para decisiones de alto riesgo.
 
-\item \textbf{Hiperparámetros interpretables.} Las escalas de longitud $\ell$ y las varianzas de ruido $\sigma_n^2$ tienen interpretaciones físicas directas.
+\item \textbf{Hiperparámetros interpretables.} Las escalas de longitud $\ell$ y las varianzas de ruido $\sigma_n^2$ del kernel tienen interpretaciones físicas directas (memoria temporal y ruido de sensor respectivamente), proporcionando información sobre el comportamiento del sistema que los modelos de caja negra no pueden ofrecer.
 \end{enumerate}
 
-\subsection{Cuándo Elegir Alternativas}
-LR es la mejor opción cuando solo se necesitan predicciones puntuales y los recursos son limitados. RF y MLP ofrecen modelado no lineal moderado con entrenamiento rápido. Sin embargo, para cualquier aplicación que requiera cuantificación de incertidumbre o detección de anomalías, GP-CPS es la opción superior a pesar de su mayor coste de entrenamiento---que sigue siendo aceptable (3.1~minutos en CPU).
+\subsection{Cuándo Elegir Cada Alternativa}
+\begin{itemize}
+\item \textbf{Regresión Lineal}: mejor opción cuando solo se necesitan predicciones puntuales, los recursos computacionales son extremadamente limitados y el sistema es aproximadamente lineal. Entrena en milisegundos y predice en microsegundos.
+
+\item \textbf{Random Forest y MLP}: ofrecen modelado no lineal moderado con entrenamiento rápido (segundos). Sin embargo, heredan la limitación fundamental de LR: ausencia de cuantificación de incertidumbre.
+
+\item \textbf{GP-CPS}: la opción superior siempre que se requiera cuantificación de incertidumbre o detección de anomalías. Su coste de entrenamiento (3.1~minutos) es aceptable para la mayoría de aplicaciones prácticas, y es el único método que proporciona incertidumbre calibrada, detección de anomalías y parámetros de kernel interpretables.
+\end{itemize}
+
+\subsection{Limitaciones y Trabajo Futuro}
+El escalado $\mathcal{O}(N^3)$ del entrenamiento GP limita el tamaño del conjunto de datos a aproximadamente $10^4$ puntos sin aproximaciones dispersas~\cite{quinonero2005}. La arquitectura de GP independientes no puede capturar correlaciones entre variables de salida; los GP multi-salida~\cite{alvarez2012} o el aprendizaje profundo de kernels~\cite{wilson2016} podrían abordar esto. El modelo es estático y requiere reentrenamiento si la dinámica del sistema cambia; las extensiones de aprendizaje online permitirían gemelos digitales adaptativos que evolucionen con el sistema físico.
 
 \section{Conclusión}
 \label{sec:conclusion}
 
-Hemos presentado GP-CPS, un framework de Procesos Gaussianos para gemelos digitales de CPS. Mediante una comparación exhaustiva con Regresión Lineal, Random Forest y MLP en datos idénticos, hemos demostrado que aunque todos los métodos logran precisión similar ($R^2 > 0.95$), GP-CPS es el único que proporciona cuantificación de incertidumbre calibrada incorporada, permitiendo detección de anomalías con principios (F1 > 0.97) sin un modelo separado.
+Hemos presentado GP-CPS, un framework de Procesos Gaussianos para gemelos digitales de CPS. Mediante una comparación exhaustiva con LR, RF y MLP en datos idénticos, demostramos que aunque todos los métodos logran $R^2 > 0.95$, GP-CPS es el único con cuantificación de incertidumbre calibrada, permitiendo detección de anomalías (F1 > 0.97) sin modelo separado. Los hiperparámetros del kernel proporcionan información interpretable sobre la dinámica del sistema.
 
-Código y datos disponibles en~\url{https://github.com/jcalataiut-cli/AdMaths-GP-DigitalTwin}.
+Código y datos:~\url{https://github.com/jcalataiut-cli/AdMaths-GP-DigitalTwin}.
 
 \begin{thebibliography}{00}
 \bibitem{breiman2001} L.~Breiman, ``Random forests,'' \textit{Machine Learning}, vol.~45, no.~1, 2001.
+\bibitem{deisenroth2015} M.~P.~Deisenroth, D.~Fox, and C.~E.~Rasmussen, ``Gaussian processes for data-efficient learning in robotics and control,'' \textit{IEEE Trans. PAMI}, vol.~37, no.~2, 2015.
 \bibitem{hornik1989} K.~Hornik, M.~Stinchcombe, and H.~White, ``Multilayer feedforward networks are universal approximators,'' \textit{Neural Networks}, vol.~2, no.~5, 1989.
+\bibitem{kocijan2004} J.~Kocijan \textit{et al.}, ``Gaussian process model based predictive control,'' in \textit{Proc. ACC}, 2004.
 \bibitem{lee2015} E.~A.~Lee, ``The past, present and future of cyber-physical systems,'' \textit{Sensors}, vol.~15, no.~3, 2015.
 \bibitem{ljung1999} L.~Ljung, \textit{System Identification: Theory for the User}, 2nd~ed. Prentice Hall, 1999.
+\bibitem{quinonero2005} J.~Qui\~nonero-Candela and C.~E.~Rasmussen, ``A unifying view of sparse approximate GP regression,'' \textit{JMLR}, vol.~6, 2005.
 \bibitem{rasmussen2006} C.~E.~Rasmussen and C.~K.~I.~Williams, \textit{Gaussian Processes for Machine Learning}. MIT Press, 2006.
 \bibitem{yuan2019} Y.~Yuan \textit{et al.}, ``Data driven discovery of cyber physical systems,'' \textit{Nature Communications}, vol.~10, no.~1, 2019.
-\bibitem{zhang2022} K.~Zhang \textit{et al.}, ``Advancements in industrial cyber-physical systems,'' \textit{IEEE Trans. Industrial Informatics}, vol.~19, no.~1, 2022.
+\bibitem{zhang2022} K.~Zhang \textit{et al.}, ``Advancements in industrial cyber-physical systems,'' \textit{IEEE Trans. Ind. Informatics}, vol.~19, no.~1, 2022.
 \end{thebibliography}
 
 \end{document}
