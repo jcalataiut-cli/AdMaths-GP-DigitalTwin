@@ -6,12 +6,14 @@
 \usepackage{graphicx}
 \usepackage{textcomp}
 \usepackage{xcolor}
+\usepackage[table]{xcolor}
 \usepackage{booktabs}
 \usepackage{tabularx}
 \usepackage{hyperref}
 \usepackage{multirow}
 \usepackage{enumitem}
 \usepackage{subcaption}
+\usepackage{array}
 
 \hyphenation{tem-per-a-ture hu-mi-di-ty o-cu-pan-cy}
 
@@ -31,7 +33,7 @@ Email: jcalataiut-cli@github.com}
 \maketitle
 
 \begin{abstract}
-Digital twins---virtual replicas of physical systems---enable simulation, prediction, and anomaly detection without interrupting real-world operations. Building a digital twin requires learning the underlying dynamical system from multivariate sensor data, a task that becomes challenging when the dynamics are nonlinear, stochastic, and only partially observed. In this paper, we present \textbf{GP-CPS}, a framework that constructs digital twins of Cyber-Physical Systems (CPS) using an ensemble of Gaussian Process (GP) regressors. Our approach learns the one-step transition dynamics of the system from data, provides principled uncertainty quantification through the GP posterior variance, and detects anomalies when observed behaviour deviates beyond $2\sigma$ from the predicted distribution. We evaluate GP-CPS on a Smart Building Zone case study with four interdependent variables (temperature, humidity, CO$_2$, occupancy) and three anomaly scenarios (heater malfunction, ventilation failure, occupancy spike). The framework achieves $R^2 > 0.95$ across all variables, with a mean absolute error of $0.23^\circ$C for temperature and 20.7~ppm for CO$_2$, while training in under 4 minutes on a single CPU core. We further analyse the learned kernel structures, uncertainty calibration, spectral properties of the GP posterior, and the sensitivity of predictions to kernel choice. Our results demonstrate that GP-based digital twins offer a computationally efficient and theoretically grounded alternative for CPS simulation, with built-in uncertainty quantification that enables reliable anomaly detection.
+Digital twins---virtual replicas of physical systems---enable simulation, prediction, and anomaly detection without interrupting real-world operations. In this paper, we present \textbf{GP-CPS}, a framework that constructs digital twins of Cyber-Physical Systems (CPS) using Gaussian Process (GP) regressors. We evaluate GP-CPS on a Smart Building Zone with four interdependent variables (temperature, humidity, CO$_2$, occupancy) and compare it against three alternative approaches: Linear Regression, Random Forest, and Multi-Layer Perceptron. While all methods achieve competitive predictive accuracy ($R^2 > 0.95$), GP-CPS is the only method that provides \emph{built-in, calibrated uncertainty quantification} through the GP posterior variance, enabling principled anomaly detection without a separate model. The framework achieves a mean absolute error of $0.23^\circ$C for temperature and 20.7~ppm for CO$_2$, trains in under 4 minutes on CPU, and detects anomalies across three scenarios with F1 scores above 0.97. Our results demonstrate that GP-based digital twins offer a unique combination of predictive accuracy, uncertainty quantification, and anomaly detection that alternative methods cannot match.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -43,38 +45,29 @@ Cyber-Physical Systems, Digital Twin, Gaussian Process, Anomaly Detection, Uncer
 
 Modern Cyber-Physical Systems (CPS) integrate computation, communication, and physical processes into tightly coupled systems~\cite{lee2015,zhang2022}. The proliferation of sensors in the Industrial Internet of Things (IIoT) has generated vast streams of multivariate time series data that capture the complex, interdependent behaviour of these systems. This data wealth presents both an opportunity and a challenge: how can we build accurate simulators---digital twins---that replicate system behaviour without requiring explicit analytical models of the underlying physics?
 
-Data-driven approaches have emerged as a compelling answer~\cite{yuan2019}. By learning patterns directly from sensor data, machine learning models can capture nonlinear dynamics, stochastic behaviours, and interactions between variables that would be prohibitively difficult to model analytically. Generative models, including Variational Autoencoders~\cite{kingma2013}, Generative Adversarial Networks~\cite{goodfellow2014}, and Diffusion Models~\cite{ho2020}, have been successfully applied to generate realistic multivariate time series. However, these approaches typically require significant computational resources (GPU training) and do not naturally provide uncertainty estimates for their predictions.
+Data-driven approaches have emerged as a compelling answer~\cite{yuan2019}. By learning patterns directly from sensor data, machine learning models can capture nonlinear dynamics, stochastic behaviours, and interactions between variables that would be prohibitively difficult to model analytically. However, most standard approaches---Linear Regression (LR), Random Forests (RF), and Multi-Layer Perceptrons (MLP)---provide only point estimates of the system state without quantifying prediction uncertainty. This limitation is critical for digital twin applications: anomaly detection, for instance, fundamentally requires knowing when the observed behaviour deviates beyond what can be attributed to normal variability.
 
-Gaussian Processes (GPs)~\cite{rasmussen2006} offer an alternative that addresses both limitations. As a Bayesian non-parametric framework, GPs provide:
+Gaussian Processes (GPs)~\cite{rasmussen2006} address this limitation through their Bayesian non-parametric framework. GPs provide:
 \begin{enumerate}[nosep]
 \item A principled approach to learning unknown functions from data,
 \item Analytical uncertainty quantification through predictive variance,
-\item A rich kernel framework for encoding structural assumptions about the underlying dynamics, and
+\item A rich kernel framework for encoding structural assumptions about the underlying dynamics,
 \item Training that scales to CPU-only computation for moderate dataset sizes.
 \end{enumerate}
 
 In this paper, we introduce \textbf{GP-CPS}, a framework that leverages Gaussian Processes to build data-driven digital twins of Cyber-Physical Systems. Our contributions are:
 
 \begin{enumerate}
-\item \textbf{A GP-based modelling framework} for learning CPS dynamics from multivariate time series data, using an ensemble of independent GPs---one per output variable---with shared input features that include both current state and control inputs.
-\item \textbf{Uncertainty-based anomaly detection}, where the GP's predictive variance serves as a natural confidence envelope: deviations beyond a calibrated threshold signal system anomalies without requiring a separate anomaly detection model.
-\item \textbf{A comprehensive case study on a Smart Building Zone}, a multi-variable CPS with nonlinear dynamics coupling temperature, humidity, CO$_2$, and occupancy, including three distinct anomaly scenarios.
-\item \textbf{Extensive analysis} of kernel selection, uncertainty calibration, spectral properties of learned kernels, and sensitivity to hyperparameters, providing practical guidance for deploying GP-based digital twins.
+\item \textbf{A GP-based modelling framework} for learning CPS dynamics from multivariate time series data, using an ensemble of independent GPs---one per output variable---with shared input features.
+\item \textbf{Uncertainty-based anomaly detection}, where the GP's predictive variance serves as a natural confidence envelope for detecting system anomalies without a separate model.
+\item \textbf{A comprehensive comparison} with three standard approaches (Linear Regression, Random Forest, MLP) on identical data, demonstrating that GP-CPS matches their accuracy while providing unique uncertainty quantification.
+\item \textbf{A case study on a Smart Building Zone}, a multi-variable CPS with nonlinear dynamics coupling temperature, humidity, CO$_2$, and occupancy, including three anomaly scenarios.
 \end{enumerate}
-
-The remainder of this paper is organised as follows. Section~\ref{sec:problem} formulates the problem. Section~\ref{sec:prelim} reviews Gaussian Process regression. Section~\ref{sec:method} presents the GP-CPS framework. Section~\ref{sec:case} describes the Smart Building Zone case study. Section~\ref{sec:results} reports experimental results. Section~\ref{sec:discussion} discusses implications and limitations. Section~\ref{sec:conclusion} concludes.
 
 \section{Problem Formulation}
 \label{sec:problem}
 
-We consider a Cyber-Physical System observed through $d$ sensor variables over discrete time steps $t = 1, \dots, T$. At each time step, the system is characterised by:
-
-\begin{itemize}
-\item \textbf{State vector} $\mathbf{s}_t \in \mathbb{R}^d$, representing the values of the $d$ sensor variables at time $t$.
-\item \textbf{Control input} $\mathbf{u}_t \in \mathbb{R}^c$, representing exogenous inputs or control signals applied at time $t$.
-\end{itemize}
-
-The system evolves according to an unknown transition function $f$:
+We consider a CPS observed through $d$ sensor variables over discrete time steps $t = 1, \dots, T$. At each time step, the system is characterised by a state vector $\mathbf{s}_t \in \mathbb{R}^d$ and a control input $\mathbf{u}_t \in \mathbb{R}^c$. The system evolves according to an unknown transition function $f$:
 
 \begin{equation}
 \mathbf{s}_{t+1} = f(\mathbf{s}_t, \mathbf{u}_t) + \boldsymbol{\epsilon}_t,
@@ -82,17 +75,7 @@ The system evolves according to an unknown transition function $f$:
 \label{eq:transition}
 \end{equation}
 
-where $\boldsymbol{\epsilon}_t$ represents zero-mean Gaussian process noise with covariance $\boldsymbol{\Sigma}_\epsilon$, capturing both intrinsic stochasticity and unmodelled dynamics. This Markovian assumption---that the next state depends only on the current state and control---is standard in system identification~\cite{ljung1999} and holds approximately when the sampling interval is sufficiently large relative to the system's time constants.
-
-Given a dataset $\mathcal{D} = \{(\mathbf{x}_t, \mathbf{y}_t)\}_{t=1}^{N-1}$ of $N-1$ observed transitions, where:
-
-\begin{equation}
-\mathbf{x}_t = \begin{bmatrix} \mathbf{s}_t \\ \mathbf{u}_t \end{bmatrix} \in \mathbb{R}^{d+c}, \qquad
-\mathbf{y}_t = \mathbf{s}_{t+1} \in \mathbb{R}^{d},
-\label{eq:data}
-\end{equation}
-
-our objective is to learn a predictive model $\hat{f}$ such that:
+Given a dataset $\mathcal{D} = \{(\mathbf{x}_t, \mathbf{y}_t)\}_{t=1}^{N-1}$ where $\mathbf{x}_t = [\mathbf{s}_t^\top, \mathbf{u}_t^\top]^\top \in \mathbb{R}^{d+c}$ and $\mathbf{y}_t = \mathbf{s}_{t+1} \in \mathbb{R}^d$, our objective is to learn:
 
 \begin{equation}
 \hat{f}(\mathbf{x}) \approx \mathbb{E}[\mathbf{y} \mid \mathbf{x}],
@@ -101,153 +84,60 @@ our objective is to learn a predictive model $\hat{f}$ such that:
 \label{eq:objective}
 \end{equation}
 
-where $\hat{\sigma}$ quantifies the predictive uncertainty. This uncertainty is crucial for reliable anomaly detection: when the observed next state deviates significantly from the predicted distribution, we flag a potential anomaly.
+where $\hat{\sigma}$ quantifies the predictive uncertainty. This uncertainty is crucial for anomaly detection: when the observed next state deviates significantly from the predicted distribution, we flag a potential anomaly. Standard regression methods (LR, RF, MLP) provide $\hat{f}$ but not $\hat{\sigma}$, requiring a separate model for anomaly detection.
 
 \section{Gaussian Process Regression}
 \label{sec:prelim}
 
-A Gaussian Process is a collection of random variables, any finite subset of which follows a joint Gaussian distribution~\cite{rasmussen2006}. A GP is fully specified by a mean function $m(\mathbf{x})$ and a covariance function (kernel) $k(\mathbf{x}, \mathbf{x}')$:
+A Gaussian Process is a collection of random variables, any finite subset of which follows a joint Gaussian distribution~\cite{rasmussen2006}. A GP is fully specified by a mean function $m(\mathbf{x})$ and a covariance kernel $k(\mathbf{x}, \mathbf{x}')$: $f(\mathbf{x}) \sim \mathcal{GP}(m(\mathbf{x}), k(\mathbf{x}, \mathbf{x}'))$.
 
-\begin{equation}
-f(\mathbf{x}) \sim \mathcal{GP}(m(\mathbf{x}), k(\mathbf{x}, \mathbf{x}')).
-\label{eq:gp_def}
-\end{equation}
-
-For a training set $\{(\mathbf{x}_i, y_i)\}_{i=1}^N$ with $\mathbf{X} = [\mathbf{x}_1, \dots, \mathbf{x}_N]^\top$ and $\mathbf{y} = [y_1, \dots, y_N]^\top$, the GP predictive distribution at a test point $\mathbf{x}^*$ is Gaussian with mean and variance:
+For training data $\{(\mathbf{x}_i, y_i)\}_{i=1}^N$, the GP predictive distribution at a test point $\mathbf{x}^*$ is Gaussian with mean and variance:
 
 \begin{align}
 \mu(\mathbf{x}^*) &= \mathbf{k}_*^\top (\mathbf{K} + \sigma_n^2 \mathbf{I})^{-1} \mathbf{y}, \label{eq:gp_mean}\\
 \sigma^2(\mathbf{x}^*) &= k(\mathbf{x}^*, \mathbf{x}^*) - \mathbf{k}_*^\top (\mathbf{K} + \sigma_n^2 \mathbf{I})^{-1} \mathbf{k}_*, \label{eq:gp_var}
 \end{align}
 
-where $\mathbf{K}_{ij} = k(\mathbf{x}_i, \mathbf{x}_j)$, $\mathbf{k}_* = [k(\mathbf{x}_1, \mathbf{x}^*), \dots, k(\mathbf{x}_N, \mathbf{x}^*)]^\top$, and $\sigma_n^2$ is the likelihood noise variance.
-
-The kernel encodes our assumptions about the function being learned. We consider three widely-used kernels appropriate for physical system dynamics:
-
-\subsection{Mat\'ern Kernel}
-The Mat\'ern class with $\nu = 3/2$ assumes functions that are once-differentiable:
+where $\mathbf{K}_{ij} = k(\mathbf{x}_i, \mathbf{x}_j)$, $\mathbf{k}_* = [k(\mathbf{x}_1, \mathbf{x}^*), \dots, k(\mathbf{x}_N, \mathbf{x}^*)]^\top$, and $\sigma_n^2$ is the likelihood noise. We use the Mat\'ern kernel ($\nu=3/2$), which assumes once-differentiable functions appropriate for physical dynamics:
 
 \begin{equation}
-k_{\text{M}}(\mathbf{x}, \mathbf{x}') = \sigma^2 \left(1 + \frac{\sqrt{3}r}{\ell}\right) \exp\!\left(-\frac{\sqrt{3}r}{\ell}\right) + \sigma_n^2 \delta_{\mathbf{x},\mathbf{x}'},
+k_{\text{M}}(\mathbf{x}, \mathbf{x}') = \sigma^2 \!\left(1 + \frac{\sqrt{3}r}{\ell}\right) \exp\!\left(-\frac{\sqrt{3}r}{\ell}\right) + \sigma_n^2 \delta_{\mathbf{x},\mathbf{x}'},
 \label{eq:matern}
 \end{equation}
 
 where $r = \|\mathbf{x} - \mathbf{x}'\|$, $\ell$ is the length scale, $\sigma^2$ the signal variance, and $\sigma_n^2$ the noise variance.
 
-\subsection{Squared Exponential (RBF) Kernel}
-The RBF kernel assumes infinitely smooth functions:
-
-\begin{equation}
-k_{\text{RBF}}(\mathbf{x}, \mathbf{x}') = \sigma^2 \exp\!\left(-\frac{r^2}{2\ell^2}\right) + \sigma_n^2 \delta_{\mathbf{x},\mathbf{x}'}.
-\label{eq:rbf}
-\end{equation}
-
-\subsection{Rational Quadratic Kernel}
-The Rational Quadratic kernel models functions at multiple length scales:
-
-\begin{equation}
-k_{\text{RQ}}(\mathbf{x}, \mathbf{x}') = \sigma^2 \left(1 + \frac{r^2}{2\alpha\ell^2}\right)^{-\alpha} + \sigma_n^2 \delta_{\mathbf{x},\mathbf{x}'},
-\label{eq:rq}
-\end{equation}
-
-where $\alpha$ controls the relative weighting of large-scale versus small-scale variations.
-
-\subsection{Interpretation in Dynamical Systems}
-In the context of learning system dynamics, the length scale $\ell$ captures the sensitivity of the next state to changes in the current state and control. A short length scale indicates that a small change in the input causes a significant change in the output---characteristic of sensitive or unstable dynamics. The signal variance $\sigma^2$ captures the overall magnitude of state changes, while the noise variance $\sigma_n^2$ quantifies the inherent stochasticity of the system.
-
 \section{The GP-CPS Framework}
 \label{sec:method}
 
 \subsection{Architecture}
-
-GP-CPS employs an ensemble of $d$ independent Gaussian Process regressors, one for each output dimension $i \in \{1, \dots, d\}$. Each GP learns the mapping from the current state-control pair to the next value of a single variable. This architecture is illustrated in Figure~\ref{fig:architecture}.
-
-\begin{figure}[t]
-\centering
-\framebox{\parbox{0.9\columnwidth}{\centering
-\textbf{GP-CPS Architecture}\\\smallskip
-$\mathbf{x}_t = [\mathbf{s}_t, \mathbf{u}_t]$\hfill
-$\downarrow$\hfill\\
-$\boxed{\text{GP}_1}$\hfill$\boxed{\text{GP}_2}$\hfill$\boxed{\text{GP}_d}$\\
-$\downarrow$\hfill$\downarrow$\hfill$\downarrow$\\
-$y_t^{(1)}$\hfill$y_t^{(2)}$\hfill$y_t^{(d)}$\\
-}}
-\caption{Architecture of GP-CPS. An ensemble of $d$ Gaussian Process regressors maps the current state-control pair to the next state, with each GP handling one output dimension independently.}
-\label{fig:architecture}
-\end{figure}
-
-Formally, for each output dimension $i$:
-
-\begin{equation}
-y^{(i)} \sim \mathcal{GP}\big(m_i(\mathbf{x}), k_i(\mathbf{x}, \mathbf{x}')\big),
-\label{eq:gp_ensemble}
-\end{equation}
-
-where $m_i$ is the mean function (set to zero after standardising the data) and $k_i$ is the kernel function for dimension $i$. The independence assumption across output dimensions is a pragmatic simplification that keeps computational complexity tractable: training $d$ separate GPs costs $\mathcal{O}(d \cdot N^3)$, compared to $\mathcal{O}((dN)^3)$ for a full multi-output GP. For the sizes considered here ($d=3$, $N \approx 1000$), this is manageable on CPU.
+GP-CPS employs an ensemble of $d$ independent Gaussian Process regressors, one per output dimension $i \in \{1, \dots, d\}$. Each GP learns the mapping $y^{(i)} \sim \mathcal{GP}(m_i(\mathbf{x}), k_i(\mathbf{x}, \mathbf{x}'))$. The independence assumption keeps complexity at $\mathcal{O}(d \cdot N^3)$ rather than $\mathcal{O}((dN)^3)$ for a full multi-output GP.
 
 \subsection{Uncertainty-Based Anomaly Detection}
-
-Given the GP predictive distribution for each dimension:
-
-\begin{equation}
-p(y^{(i)*} \mid \mathcal{D}, \mathbf{x}^*) = \mathcal{N}(\mu_i^*, \sigma_i^{*2}),
-\label{eq:pred_dist}
-\end{equation}
-
-we define a multi-variable anomaly score:
+Given the GP predictive distribution $p(y^{(i)*} \mid \mathcal{D}, \mathbf{x}^*) = \mathcal{N}(\mu_i^*, \sigma_i^{*2})$, we define a multi-variable anomaly score:
 
 \begin{equation}
 z(\mathbf{y}^*) = \frac{1}{d} \sum_{i=1}^d \frac{|y^{(i)*} - \mu_i^*|}{\sigma_i^* + \varepsilon},
 \label{eq:anomaly_score}
 \end{equation}
 
-where $\varepsilon$ is a small constant to prevent division by zero. An observation is flagged as anomalous when $z(\mathbf{y}^*) > \tau$, where $\tau$ is a threshold. Under the assumption that the predictive distribution is approximately correct, $z(\mathbf{y}^*)$ follows a folded normal distribution. Setting $\tau = 2$ corresponds to approximately a 95\% confidence envelope for each individual variable.
-
-The key advantage of this approach is that it does not require a separate anomaly detection model. The GP's uncertainty naturally adapts to regions of the input space with sparse data, providing wider confidence intervals where the model is less certain.
-
-\subsection{Multi-Step Simulation}
-
-For forward simulation over $H$ steps, we propagate the state recursively. At step $h$, given the current state $\mathbf{s}_h$ and control $\mathbf{u}_h$, we compute:
-
-\begin{equation}
-\hat{\mathbf{s}}_{h+1} = \boldsymbol{\mu}(\mathbf{x}_h), \qquad
-\hat{\boldsymbol{\sigma}}_{h+1} = \boldsymbol{\sigma}(\mathbf{x}_h),
-\label{eq:sim_step}
-\end{equation}
-
-where $\boldsymbol{\mu}(\mathbf{x}_h) = [\mu_1(\mathbf{x}_h), \dots, \mu_d(\mathbf{x}_h)]^\top$ and $\boldsymbol{\sigma}(\mathbf{x}_h) = [\sigma_1(\mathbf{x}_h), \dots, \sigma_d(\mathbf{x}_h)]^\top$. The predicted state becomes the input for the next step, and uncertainty accumulates naturally through the GP predictive variances.
+An observation is flagged as anomalous when $z(\mathbf{y}^*) > \tau$, where $\tau = 2$ corresponds to approximately a 95\% confidence envelope. This approach does not require a separate anomaly detection model---the GP's uncertainty naturally adapts to regions of the input space with sparse data.
 
 \subsection{Algorithm}
-
-The complete training and inference procedure is summarised in Algorithm~\ref{alg:gpcps}.
+The complete procedure is summarised in Algorithm~\ref{alg:gpcps}.
 
 \begin{algorithm}[t]
 \caption{GP-CPS: Training and Inference}
 \label{alg:gpcps}
 \begin{algorithmic}
-\STATE \textbf{Input:} Training data $\mathcal{D} = \{(\mathbf{x}_t, \mathbf{y}_t)\}_{t=1}^N$
-\STATE \textbf{Input:} Kernel type $k \in \{\text{Matern}, \text{RBF}, \text{RQ}\}$
-\STATE \textbf{Input:} Anomaly threshold $\tau$
-\STATE
-\STATE \textbf{Training}
+\STATE \textbf{Input:} $\mathcal{D} = \{(\mathbf{x}_t, \mathbf{y}_t)\}_{t=1}^N$, kernel $k$, threshold $\tau$
+\STATE \textbf{Training:}
 \FOR{$i = 1$ to $d$}
-\STATE Standardise $\mathbf{y}^{(i)}$ (zero mean, unit variance)
-\STATE $\text{GP}_i \gets$ GaussianProcessRegressor(kernel=$k$)
-\STATE $\text{GP}_i$.fit($\mathbf{X}$, $\mathbf{y}^{(i)}$)
-\STATE Optimise kernel hyperparameters via log-marginal-likelihood
+\STATE Standardise $\mathbf{y}^{(i)}$, initialise GP$_i$ with kernel $k$
+\STATE GP$_i$.fit($\mathbf{X}$, $\mathbf{y}^{(i)}$) \COMMENT{Optimise hyperparameters via LML}
 \ENDFOR
-\STATE
-\STATE \textbf{Prediction} (at test point $\mathbf{x}^*$)
-\FOR{$i = 1$ to $d$}
-\STATE $(\mu_i^*, \sigma_i^{*2}) \gets \text{GP}_i$.predict($\mathbf{x}^*$)
-\ENDFOR
-\RETURN $\boldsymbol{\mu}^*$, $\boldsymbol{\sigma}^*$
-\STATE
-\STATE \textbf{Anomaly Detection} (at observation $\mathbf{y}^*$)
-\STATE $z \gets \frac{1}{d} \sum_{i=1}^d |y^{(i)*} - \mu_i^*| / (\sigma_i^* + \varepsilon)$
-\IF{$z > \tau$}
-\STATE \textbf{Flag} anomaly
-\ENDIF
+\STATE \textbf{Prediction} at $\mathbf{x}^*$: return $\boldsymbol{\mu}^*$, $\boldsymbol{\sigma}^*$
+\STATE \textbf{Anomaly Detection} at $\mathbf{y}^*$: flag if $z(\mathbf{y}^*) > \tau$
 \end{algorithmic}
 \end{algorithm}
 
@@ -255,51 +145,15 @@ The complete training and inference procedure is summarised in Algorithm~\ref{al
 \label{sec:case}
 
 \subsection{System Description}
+We model an office building zone with four state variables: temperature $T$ ($^\circ$C), humidity $H$ (\%), CO$_2$ concentration $C$ (ppm), and occupancy $O$ (people). Two control inputs are available: heater power $P_h \in [0,1]$ and ventilation rate $V \in [0,1]$. The dynamics follow coupled differential equations:
 
-We model an office building zone as a Cyber-Physical System with four sensor variables and two control inputs. The system dynamics are governed by coupled differential equations capturing thermal, hygric, and air quality processes.
-
-\subsubsection{State Variables}
-\begin{itemize}[nosep]
-\item $T$: Temperature ($^\circ$C), range $[15, 35]$.
-\item $H$: Relative humidity (\%), range $[10, 90]$.
-\item $C$: CO$_2$ concentration (ppm), range $[400, 5000]$.
-\item $O$: Occupancy (number of people), discrete $\{0, 1, \dots, 5\}$.
-\end{itemize}
-
-\subsubsection{Control Inputs}
-\begin{itemize}[nosep]
-\item $P_h$: Heater power, normalised $[0, 1]$.
-\item $V$: Ventilation rate, normalised $[0, 1]$.
-\end{itemize}
-
-\subsection{Dynamical Model}
-
-The system evolves according to the following coupled differential equations:
-
-\paragraph{Temperature dynamics:}
 \begin{align}
-\frac{dT}{dt} = \frac{1}{C_T}\Big[&\alpha P_h - \beta(T - T_{\text{ext}}) \nonumber\\
-&- \gamma O(T - T_{\text{body}}) - \delta V(T - T_{\text{in}})\Big] + \epsilon_T,
-\label{eq:dT}
+\frac{dT}{dt} &= \frac{1}{C_T}\big[\alpha P_h - \beta(T - T_{\text{ext}}) - \gamma O(T - T_{\text{body}}) - \delta V(T - 18)\big] + \epsilon_T,\\
+\frac{dH}{dt} &= \frac{1}{C_H}\big[\eta O(H_{\text{body}} - H) - \theta V(H - H_{\text{ext}}) - \lambda(H - 50)\big] + \epsilon_H,\\
+\frac{dC}{dt} &= \frac{1}{C_C}\big[\mu O C_{\text{body}} - \nu V(C - C_{\text{ext}})\big] + \epsilon_C,
 \end{align}
-where $C_T$ is the thermal capacity, $\alpha$ the heater efficiency, $\beta$ the heat loss coefficient to the exterior, $\gamma$ the heat transfer per occupant, $\delta$ the ventilation heat loss, and $\epsilon_T \sim \mathcal{N}(0, 0.05)$ process noise.
 
-\paragraph{Humidity dynamics:}
-\begin{align}
-\frac{dH}{dt} = \frac{1}{C_H}\Big[&\eta O(H_{\text{body}} - H) \nonumber\\
-&- \theta V(H - H_{\text{ext}}) - \lambda(H - H_{\text{ideal}})\Big] + \epsilon_H,
-\label{eq:dH}
-\end{align}
-where $C_H$ is the humidity capacity, $\eta$ the moisture production per occupant, $\theta$ the ventilation humidity exchange, and $\lambda$ the material absorption rate; $\epsilon_H \sim \mathcal{N}(0, 0.3)$.
-
-\paragraph{CO$_2$ dynamics:}
-\begin{align}
-\frac{dC}{dt} = \frac{1}{C_C}\Big[&\mu O C_{\text{body}} - \nu V(C - C_{\text{ext}})\Big] + \epsilon_C,
-\label{eq:dC}
-\end{align}
-where $C_C$ is the CO$_2$ capacity, $\mu$ the CO$_2$ production per occupant, and $\nu$ the ventilation CO$_2$ renewal rate; $\epsilon_C \sim \mathcal{N}(0, 5)$.
-
-Table~\ref{tab:params} lists the physical parameter values used in simulation.
+with parameter values listed in Table~\ref{tab:params}.
 
 \begin{table}[t]
 \centering
@@ -315,76 +169,65 @@ Humidity capacity & $C_H$ & 50.0 \\
 CO$_2$ capacity & $C_C$ & 80.0 \\
 Heater efficiency & $\alpha$ & 0.8 \\
 Heat loss coefficient & $\beta$ & 0.05 \\
-Body heat transfer & $\gamma$ & 0.02 \\
-Ventilation heat loss & $\delta$ & 0.03 \\
-Moisture per occupant & $\eta$ & 0.04 \\
-Ventilation humidity exchange & $\theta$ & 0.06 \\
-Material absorption & $\lambda$ & 0.01 \\
 CO$_2$ per occupant & $\mu$ & 0.005 \\
 Ventilation CO$_2$ renewal & $\nu$ & 0.05 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{Dataset Generation}
-
-Training data is generated by simulating 10 independent scenarios of 12 hours each (144 time steps at 5-minute resolution), with initial parameters perturbed by Gaussian noise ($\sigma = 10\%$ of nominal value) to ensure diversity. The nominal daily schedule simulates realistic office occupancy: people arrive around 8:00, a reduced occupancy during lunch (12:00--13:00), afternoon activity, and departure after 18:00. The heating and ventilation controls respond to the resulting temperature and occupancy conditions.
-
-Validation uses 2 held-out scenarios with different random seeds. Additionally, we generate three anomaly scenarios:
-
-\begin{enumerate}[nosep]
-\item \textbf{Heater malfunction:} The heater is stuck at high power ($P_h = 0.9$) regardless of control signal, simulating a stuck valve or relay failure.
-\item \textbf{Ventilation failure:} The ventilation rate drops to near-zero ($V = 0.02$), simulating a fan or damper failure.
-\item \textbf{Occupancy spike:} A sudden influx of 5 additional occupants, simulating an unexpected event such as a meeting or gathering.
-\end{enumerate}
+\subsection{Data}
+Training data: 10 scenarios of 12 hours (144 steps at 5-minute resolution). Validation: 2 held-out scenarios. Anomaly scenarios: heater stuck at high power, near-zero ventilation, and sudden occupancy influx.
 
 \section{Experimental Results}
 \label{sec:results}
 
 \subsection{Experimental Setup}
-
-All experiments were conducted on a single CPU core (AMD) with 16~GB RAM. GP models were implemented using scikit-learn's GaussianProcessRegressor. Input features were standardised to zero mean and unit variance. Unless otherwise specified, the Mat\'ern kernel ($\nu = 3/2$) was used, and hyperparameters were optimised by maximising the log-marginal-likelihood with 5 random restarts.
+All experiments on a single CPU core, 16~GB RAM. GPs use Mat\'ern ($\nu=3/2$) with 5 random restarts for hyperparameter optimisation. Comparison methods: Linear Regression (LR)~\cite{ljung1999}, Random Forest (RF, 100 trees, depth 10)~\cite{breiman2001}, and MLP Regressor (2 hidden layers: 64, 32)~\cite{hornik1989}.
 
 \subsection{Predictive Performance}
-
-Table~\ref{tab:metrics} shows the predictive performance of GP-CPS on the held-out validation set (286 transitions). All three continuous variables achieve $R^2 > 0.95$, indicating that the GP ensemble accurately captures the system dynamics.
+Table~\ref{tab:metrics} shows the predictive performance of GP-CPS and the three alternative methods. All methods achieve $R^2 > 0.95$, indicating that the system dynamics are sufficiently linear for LR to perform well. However, the key differentiator is not predictive accuracy alone.
 
 \begin{table}[t]
 \centering
-\caption{Predictive performance on held-out validation data (286 transitions).}
+\caption{Predictive performance comparison across methods.}
 \label{tab:metrics}
 \small
-\begin{tabular}{lcccc}
+\begin{tabular}{lc>{\columncolor[gray]{0.9}}c}
 \toprule
-\textbf{Variable} & \textbf{MAE} & \textbf{RMSE} & \textbf{R$^2$} & \textbf{MAPE} \\
+\textbf{Metric} & \textbf{LR} & \textbf{RF} & \textbf{MLP} & \textbf{GP-CPS} \\
 \midrule
-Temperature ($^\circ$C) & 0.229 & 0.282 & 0.957 & 1.04\% \\
-Humidity (\%) & 1.221 & 1.562 & 0.977 & 2.45\% \\
-CO$_2$ (ppm) & 20.699 & 26.027 & 0.990 & 2.13\% \\
+$R^2$ (Temperat.) & 0.955 & 0.943 & 0.944 & \textbf{0.957} \\
+$R^2$ (Humidity) & 0.976 & 0.965 & 0.966 & \textbf{0.977} \\
+$R^2$ (CO$_2$) & \textbf{0.991} & 0.985 & 0.986 & 0.990 \\
+Mean $R^2$ & 0.974 & 0.964 & 0.965 & \textbf{0.975} \\
+\midrule
+Train time (s) & \textbf{0.02} & 1.40 & 0.74 & 139.76 \\
+Inference (ms) & \textbf{0.08} & 69.74 & 2.11 & 3.40 \\
+\midrule
+Uncertainty & No & No & No & \textbf{Yes} \\
+Anomaly detect. & No & No & No & \textbf{Built-in} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Temperature prediction achieves the lowest absolute error ($0.23^\circ$C), while CO$_2$ shows near-perfect relative accuracy ($R^2 = 0.99$). The slightly higher absolute error for CO$_2$ (20.7~ppm) is consistent with its larger dynamic range (400--5000~ppm).
+\subsection{Beyond Accuracy: The Advantage of Uncertainty}
 
-Figure~\ref{fig:prediction} visualises the predictions against ground truth for the first 200 validation samples, with 95\% confidence intervals. The GP uncertainty estimates are well-calibrated: approximately 95\% of observations fall within the $\pm 2\sigma$ envelope.
+Table~\ref{tab:metrics} reveals that all four methods achieve similar predictive accuracy ($R^2$ within 0.01). Linear Regression trains fastest (0.02~s) and predicts fastest (0.08~ms), while GP-CPS is the slowest to train (139.76~s). This raises an important question: if all methods perform similarly, why use Gaussian Processes?
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{fig02_prediction_vs_actual.png}
-\caption{GP-CPS predictions vs.\ ground truth on held-out validation data. Shaded regions show $\pm 2\sigma$ confidence intervals (95\%).}
-\label{fig:prediction}
-\end{figure}
+The answer lies in what Table~\ref{tab:metrics} cannot capture: \textbf{uncertainty quantification}. LR, RF, and MLP produce only point estimates---a single predicted value for each output variable. They cannot distinguish between predictions made in regions of dense training data (where the model should be confident) and regions far from training data (where predictions are extrapolations).
 
-\subsection{Uncertainty Calibration}
+GP-CPS provides a full predictive distribution for every output. This distribution:
+\begin{enumerate}[nosep]
+\item \textbf{Enables anomaly detection without additional models}: the anomaly score $z(\mathbf{y}^*)$ directly quantifies how surprising a new observation is under the learned dynamics.
+\item \textbf{Is well-calibrated}: Table~\ref{tab:calibration} shows that the GP's $\pm 2\sigma$ intervals contain approximately 97\% of observations---close to the expected 95\%.
+\item \textbf{Adapts to sparse data}: regions of the input space with few training samples automatically receive wider confidence intervals.
+\end{enumerate}
 
-We assess the calibration of GP uncertainty by computing the proportion of observations that fall within prediction intervals at various confidence levels. For a well-calibrated model, the empirical coverage should match the nominal coverage.
-
-Table~\ref{tab:calibration} shows the calibration results. The GP uncertainty is slightly conservative (coverage exceeds nominal levels), which is preferable to overconfident predictions, particularly for safety-critical anomaly detection.
+To perform anomaly detection with LR, RF, or MLP, one would need to train a separate anomaly detection model (e.g., an autoencoder or one-class SVM) and tune its threshold---adding complexity, computational cost, and an additional source of hyperparameters. GP-CPS integrates anomaly detection into the predictive model itself.
 
 \begin{table}[t]
 \centering
-\caption{Uncertainty calibration: empirical vs.\ nominal coverage.}
+\caption{Uncertainty calibration: empirical vs.\ nominal coverage for GP-CPS.}
 \label{tab:calibration}
 \small
 \begin{tabular}{lccc}
@@ -399,71 +242,15 @@ Table~\ref{tab:calibration} shows the calibration results. The GP uncertainty is
 \end{tabular}
 \end{table}
 
-\subsection{Kernel Analysis and Spectral Properties}
-
-The learned kernel hyperparameters reveal the structure of the system dynamics. Table~\ref{tab:kernels} shows the optimised length scales for each variable, averaged across the three GPs.
-
-\begin{table}[t]
-\centering
-\caption{Learned kernel hyperparameters (Mat\'ern $\nu=3/2$).}
-\label{tab:kernels}
-\small
-\begin{tabular}{lcccc}
-\toprule
-\textbf{Variable} & $\ell$ & $\sigma^2$ & $\sigma_n^2$ & LML \\
-\midrule
-Temperature & 2.14 & 0.89 & 0.011 & 252.5 \\
-Humidity & 1.87 & 0.94 & 0.008 & 794.8 \\
-CO$_2$ & 3.21 & 0.97 & 0.003 & 978.6 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-The length scale $\ell$ quantifies the ``memory'' of each variable: CO$_2$ has the longest length scale ($\ell = 3.21$), reflecting its slower dynamics, while humidity has the shortest ($\ell = 1.87$), consistent with its sensitivity to rapid changes in occupancy and ventilation.
-
-Figure~\ref{fig:kernels} visualises the learned kernel matrices. The structure reveals the correlation patterns learned by each GP.
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{fig03_kernel_analysis.png}
-\caption{Learned kernel matrices (Mat\'ern $\nu=3/2$) for temperature, humidity, and CO$_2$. Each matrix encodes the similarity structure discovered by the GP.}
-\label{fig:kernels}
-\end{figure}
-
-\subsection{Kernel Comparison}
-
-We compare three kernel choices: Mat\'ern ($\nu=3/2$), RBF, and Rational Quadratic. Table~\ref{tab:kernel_comp} reports the held-out log marginal likelihood and RMSE for each.
-
-\begin{table}[t]
-\centering
-\caption{Comparison of kernel choices. LML: log-marginal-likelihood (higher is better).}
-\label{tab:kernel_comp}
-\small
-\begin{tabular}{lcccc}
-\toprule
-\textbf{Kernel} & \textbf{LML} & \textbf{RMSE$_T$} & \textbf{RMSE$_H$} & \textbf{RMSE$_{CO_2}$} \\
-\midrule
-Mat\'ern ($\nu=3/2$) & \textbf{675.6} & \textbf{0.282} & \textbf{1.562} & \textbf{26.03} \\
-RBF & 673.1 & 0.291 & 1.598 & 26.41 \\
-Rational Quadratic & 674.8 & 0.285 & 1.571 & 26.12 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-The Mat\'ern kernel achieves the best performance across all metrics, consistent with the theoretical expectation that physical system dynamics are at most once-differentiable. The RBF kernel's infinite smoothness assumption is too restrictive, while the Rational Quadratic kernel approaches the Mat\'ern performance but requires an additional hyperparameter to optimise.
-
 \subsection{Anomaly Detection}
-
-Figure~\ref{fig:anomaly} shows the anomaly detection results for the three scenarios. The anomaly score $z(\mathbf{y}^*)$ rises sharply during anomalous periods, correctly identifying all three anomaly types.
+Table~\ref{tab:anomaly_metrics} reports anomaly detection performance. GP-CPS achieves F1 scores above 0.97 across all three scenarios with a false positive rate below 5\%. Figure~\ref{fig:anomaly} visualises the detection.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{fig04_anomaly_detection.png}
-\caption{Anomaly detection using GP uncertainty. Red shaded regions indicate true anomalies; red crosses mark detections ($\tau = 2$).}
+\caption{Anomaly detection using GP uncertainty. Red shaded: true anomalies; red crosses: detections ($\tau = 2$).}
 \label{fig:anomaly}
 \end{figure}
-
-Table~\ref{tab:anomaly_metrics} reports quantitative detection metrics. The GP-CPS detector achieves perfect recall across all scenarios with minimal false positives.
 
 \begin{table}[t]
 \centering
@@ -481,87 +268,77 @@ Occupancy spike & 0.976 & 1.000 & 0.988 & 0.019 \\
 \end{tabular}
 \end{table}
 
-\subsection{Multi-Step Simulation}
-
-Figure~\ref{fig:simulation} shows a 50-step forward simulation from an initial state. The GP uncertainty grows gradually with each step, reflecting the accumulation of prediction error. After 50 steps, the 95\% confidence interval spans approximately $\pm 0.5^\circ$C for temperature, $\pm 3.2$\% for humidity, and $\pm 53$~ppm for CO$_2$.
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{fig05_trajectory_simulation.png}
-\caption{50-step forward simulation with 95\% confidence intervals. Uncertainty grows naturally as the simulation extends.}
-\label{fig:simulation}
-\end{figure}
-
-\subsection{Computational Cost}
-
-Total training time for all three GPs on the training set (1,144 transitions) was 188.7~seconds (3.1~minutes). Prediction at a single test point requires less than 1~ms. Table~\ref{tab:cost} breaks down the computational cost.
+\subsection{Kernel Analysis}
+Table~\ref{tab:kernels} shows the learned kernel hyperparameters. The length scale $\ell$ quantifies each variable's temporal memory: CO$_2$ has the longest ($\ell=3.21$, slow dynamics), humidity the shortest ($\ell=1.87$, fast dynamics). The noise variance $\sigma_n^2$ captures sensor-level stochasticity.
 
 \begin{table}[t]
 \centering
-\caption{Computational cost breakdown.}
-\label{tab:cost}
+\caption{Learned kernel hyperparameters (Mat\'ern $\nu=3/2$).}
+\label{tab:kernels}
 \small
-\begin{tabular}{lrr}
+\begin{tabular}{lcccc}
 \toprule
-\textbf{Operation} & \textbf{Time} & \textbf{Scaling} \\
+\textbf{Variable} & $\ell$ & $\sigma^2$ & $\sigma_n^2$ & LML \\
 \midrule
-Data generation (10 scenarios) & 0.02~s & $\mathcal{O}(N)$ \\
-GP training (all 3 variables) & 188.7~s & $\mathcal{O}(N^3)$ \\
-Single prediction & 0.7~ms & $\mathcal{O}(N)$ \\
-50-step simulation & 35.0~ms & $\mathcal{O}(H \cdot N)$ \\
+Temperature & 2.14 & 0.89 & 0.011 & 252.5 \\
+Humidity & 1.87 & 0.94 & 0.008 & 794.8 \\
+CO$_2$ & 3.21 & 0.97 & 0.003 & 978.6 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
+\subsection{Multi-Step Simulation}
+Figure~\ref{fig:simulation} shows a 50-step forward simulation. The GP uncertainty grows gradually, reflecting error accumulation. After 50 steps, the 95\% CI spans $\pm 0.5^\circ$C for temperature, $\pm 3.2$\% for humidity, and $\pm 53$~ppm for CO$_2$.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig05_trajectory_simulation.png}
+\caption{50-step simulation with 95\% CI. Uncertainty grows naturally.}
+\label{fig:simulation}
+\end{figure}
+
 \section{Discussion}
 \label{sec:discussion}
 
-\subsection{Interpretation of Results}
+\subsection{Why GP Outperforms Alternatives (and When It Does Not)}
+The experimental comparison reveals a nuanced picture. In terms of raw predictive accuracy, all four methods perform similarly ($R^2 \approx 0.97$). This is because the Smart Building Zone dynamics, while nonlinear in theory, are approximately linear over the observed operating range. In such cases, LR is a strong baseline.
 
-The experimental results demonstrate that GP-based digital twins are viable for CPS simulation. Three findings merit particular attention.
+The decisive advantage of GP-CPS emerges when we consider the full range of digital twin requirements:
 
-First, the high $R^2$ values ($>0.95$) across all variables suggest that the GP ensemble captures the essential dynamics despite the independence assumption between output dimensions. This is because each GP learns the mapping from the full state-control vector to a single output, implicitly modelling cross-variable dependencies through the shared input features.
+\begin{enumerate}
+\item \textbf{Anomaly detection is impossible without uncertainty.} LR, RF, and MLP provide only point estimates. A $1^\circ$C prediction error could be normal variability or a heater malfunction---without uncertainty bounds, we cannot distinguish. GP-CPS's $z$-score naturally flags deviations beyond $2\sigma$ as anomalous.
 
-Second, the uncertainty calibration analysis reveals that GP predictive variances are slightly conservative. This conservatism is desirable for anomaly detection: false alarms are preferable to missed detections in safety-critical CPS applications.
+\item \textbf{Uncertainty enables safe decision-making.} In safety-critical CPS applications, knowing when the model is uncertain is as important as knowing the prediction itself. A digital twin that cannot express uncertainty is unsuitable for high-stakes decisions.
 
-Third, the kernel analysis provides interpretable insights into system dynamics. The learned length scales quantify the temporal ``memory'' of each variable, and the noise variance estimates capture the inherent stochasticity of each sensor channel.
-
-\subsection{Theoretical Connections}
-
-The effectiveness of GP-based modelling for CPS dynamics can be understood through several theoretical lenses. From a Bayesian perspective, the GP posterior represents the full distribution over functions consistent with the data, providing a principled foundation for uncertainty quantification.
-
-The connection to wide neural networks is worth noting: a single-layer neural network with an infinite number of hidden units and i.i.d. weights converges to a Gaussian Process with a specific kernel determined by the activation function and weight distribution~\cite{neal1996, lee2018}. This result, known as the Neural Network Gaussian Process (NNGP) correspondence, suggests that GP-based digital twins implicitly capture the modelling capacity of infinitely wide networks while providing exact Bayesian inference.
+\item \textbf{Interpretable hyperparameters.} The kernel length scales $\ell$ and noise variances $\sigma_n^2$ have direct physical interpretations (temporal memory and sensor noise respectively), providing insight into system behaviour that black-box models cannot offer.
+\end{enumerate}
 
 \subsection{Limitations}
+GP-CPS has three main limitations. First, the $\mathcal{O}(N^3)$ scaling limits dataset size to $\sim 10^4$ points without sparse approximations~\cite{quinonero2005}. Second, the independent-GP architecture cannot capture correlations between output variables; multi-output GPs~\cite{alvarez2012} could address this. Third, the model is static and requires retraining for distribution shift.
 
-The current framework has several limitations. First, the Markovian assumption (Equation~\ref{eq:transition}) may not hold for systems with long-range temporal dependencies or time-delayed effects. Second, the $\mathcal{O}(N^3)$ scaling of GP training limits applicability to datasets beyond approximately $10^4$ points without sparse approximations. Third, the independent-GP architecture cannot capture correlations between output variables, which may be important for some applications. Fourth, the model is static and requires retraining if the system dynamics change (distribution shift).
-
-\subsection{Future Work}
-
-Several directions for future work emerge from this study. Sparse GP approximations~\cite{quinonero2005} could scale the framework to larger datasets. Multi-output GPs~\cite{alvarez2012} would capture cross-variable correlations explicitly. Deep kernel learning~\cite{wilson2016} could automatically discover relevant features from raw sensor data. Online learning would enable adaptive digital twins that evolve with the physical system.
+\subsection{When to Choose Alternatives}
+Linear Regression is the best choice when only point predictions are needed, computational resources are extremely limited, and the system is known to be approximately linear. Random Forest and MLP offer moderate non-linear modelling with fast training. However, for any application requiring uncertainty quantification or anomaly detection, GP-CPS is the superior choice despite its higher training cost---which remains acceptable at 3.1~minutes on CPU.
 
 \section{Conclusion}
 \label{sec:conclusion}
 
-We have presented GP-CPS, a Gaussian Process framework for constructing data-driven digital twins of Cyber-Physical Systems. The framework learns system dynamics from multivariate time series data using an ensemble of GP regressors, provides analytical uncertainty quantification, and detects anomalies through deviations beyond calibrated confidence bounds. Evaluated on a Smart Building Zone case study with four interdependent variables, GP-CPS achieves $R^2 > 0.95$ across all variables, trains in under 4 minutes on CPU, and demonstrates effective anomaly detection with F1 scores above 0.97.
+We have presented GP-CPS, a Gaussian Process framework for data-driven digital twins of Cyber-Physical Systems. Through a comprehensive comparison with Linear Regression, Random Forest, and MLP on identical data, we have demonstrated that while all methods achieve similar predictive accuracy ($R^2 > 0.95$), GP-CPS is the only method that provides built-in, calibrated uncertainty quantification. This uncertainty enables principled anomaly detection without a separate model, achieving F1 scores above 0.97 across three scenarios.
 
-The framework's key strengths are its computational efficiency (no GPU required), principled uncertainty quantification, and interpretable kernel analysis. These properties make GP-based digital twins particularly suitable for rapid prototyping, educational settings, and resource-constrained environments where diffusion-based or deep learning approaches are impractical.
+The framework's key strengths---predictive accuracy, uncertainty quantification, and interpretable kernel analysis---make it particularly suitable for safety-critical CPS applications where knowing the limits of prediction is as important as the prediction itself.
 
 All code, data, and experimental results are publicly available~\url{https://github.com/jcalataiut-cli/AdMaths-GP-DigitalTwin}.
 
 \begin{thebibliography}{00}
 \bibitem{alvarez2012} M.~A.~\'Alvarez, L.~Rosasco, and N.~D.~Lawrence, ``Kernels for vector-valued functions: A review,'' \textit{Foundations and Trends in Machine Learning}, vol.~4, no.~3, 2012.
+\bibitem{breiman2001} L.~Breiman, ``Random forests,'' \textit{Machine Learning}, vol.~45, no.~1, 2001.
 \bibitem{goodfellow2014} I.~Goodfellow \textit{et al.}, ``Generative adversarial nets,'' in \textit{Proc. NeurIPS}, 2014.
 \bibitem{ho2020} J.~Ho, A.~Jain, and P.~Abbeel, ``Denoising diffusion probabilistic models,'' in \textit{Proc. NeurIPS}, 2020.
+\bibitem{hornik1989} K.~Hornik, M.~Stinchcombe, and H.~White, ``Multilayer feedforward networks are universal approximators,'' \textit{Neural Networks}, vol.~2, no.~5, 1989.
 \bibitem{kingma2013} D.~P.~Kingma and M.~Welling, ``Auto-encoding variational Bayes,'' in \textit{Proc. ICLR}, 2014.
 \bibitem{lee2015} E.~A.~Lee, ``The past, present and future of cyber-physical systems: A focus on models,'' \textit{Sensors}, vol.~15, no.~3, 2015.
-\bibitem{lee2018} J.~Lee \textit{et al.}, ``Deep neural networks as Gaussian processes,'' in \textit{Proc. ICLR}, 2018.
 \bibitem{ljung1999} L.~Ljung, \textit{System Identification: Theory for the User}, 2nd~ed. Prentice Hall, 1999.
-\bibitem{neal1996} R.~M.~Neal, \textit{Bayesian Learning for Neural Networks}. Springer, 1996.
 \bibitem{quinonero2005} J.~Qui\~nonero-Candela and C.~E.~Rasmussen, ``A unifying view of sparse approximate Gaussian process regression,'' \textit{Journal of Machine Learning Research}, vol.~6, 2005.
 \bibitem{rasmussen2006} C.~E.~Rasmussen and C.~K.~I.~Williams, \textit{Gaussian Processes for Machine Learning}. MIT Press, 2006.
-\bibitem{wilson2016} A.~G.~Wilson, Z.~Hu, R.~Salakhutdinov, and E.~P.~Xing, ``Deep kernel learning,'' in \textit{Proc. AISTATS}, 2016.
-\bibitem{yaacoub2020} J.-P.~A.~Yaacoub \textit{et al.}, ``Cyber-physical systems security: Limitations, issues and future trends,'' \textit{Microprocessors and Microsystems}, vol.~77, 2020.
 \bibitem{yuan2019} Y.~Yuan \textit{et al.}, ``Data driven discovery of cyber physical systems,'' \textit{Nature Communications}, vol.~10, no.~1, 2019.
 \bibitem{zhang2022} K.~Zhang \textit{et al.}, ``Advancements in industrial cyber-physical systems: An overview and perspectives,'' \textit{IEEE Trans. Industrial Informatics}, vol.~19, no.~1, 2022.
 \end{thebibliography}
